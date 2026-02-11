@@ -465,6 +465,17 @@ protected:
 			ActorClass = LoadClass<AActor>(nullptr, *FString::Printf(TEXT("/Script/CoreUObject.%s"), *ClassPath));
 		}
 
+		// Volume and navigation classes
+		if (!ActorClass)
+		{
+			ActorClass = LoadClass<AActor>(nullptr, *FString::Printf(TEXT("/Script/NavigationSystem.%s"), *ClassPath));
+		}
+
+		if (!ActorClass)
+		{
+			ActorClass = LoadClass<AActor>(nullptr, *FString::Printf(TEXT("/Script/PhysicsCore.%s"), *ClassPath));
+		}
+
 		if (!ActorClass)
 		{
 			ActorClass = FindObject<UClass>(nullptr, *ClassPath);

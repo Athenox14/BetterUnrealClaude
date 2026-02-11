@@ -94,9 +94,10 @@ public:
 		UBlueprint* Blueprint,
 		const FString& VariableName,
 		const FEdGraphPinType& PinType,
-		FString& OutError)
+		FString& OutError,
+		const FString& DefaultValue = FString())
 	{
-		return FBlueprintEditor::AddVariable(Blueprint, VariableName, PinType, OutError);
+		return FBlueprintEditor::AddVariable(Blueprint, VariableName, PinType, OutError, DefaultValue);
 	}
 
 	FORCEINLINE static bool RemoveVariable(

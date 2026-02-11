@@ -61,7 +61,11 @@ public class UnrealClaude : ModuleRules
 				// Asset saving
 				"EditorScriptingUtilities",
 				// Enhanced Input
-				"EnhancedInput"
+				"EnhancedInput",
+				// Navigation system (for NavMeshBoundsVolume etc.)
+				"NavigationSystem",
+				// Web browser for embedded terminal
+				"WebBrowser"
 			}
 		);
 

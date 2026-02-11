@@ -38,7 +38,8 @@ public:
 		UBlueprint* Blueprint,
 		const FString& VariableName,
 		const FEdGraphPinType& PinType,
-		FString& OutError
+		FString& OutError,
+		const FString& DefaultValue = FString()
 	);
 
 	/**

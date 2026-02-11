@@ -6,6 +6,8 @@
 #include "MCP/MCPBlueprintLoadContext.h"
 #include "UnrealClaudeModule.h"
 #include "Engine/Blueprint.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
 
 // Operation name constants
 namespace BlueprintModifyOps
@@ -15,6 +17,7 @@ namespace BlueprintModifyOps
 	static const FString RemoveVariable = TEXT("remove_variable");
 	static const FString AddFunction = TEXT("add_function");
 	static const FString RemoveFunction = TEXT("remove_function");
+	static const FString AddComponent = TEXT("add_component");
 	static const FString AddNode = TEXT("add_node");
 	static const FString AddNodes = TEXT("add_nodes");
 	static const FString DeleteNode = TEXT("delete_node");
@@ -57,6 +60,10 @@ FMCPToolResult FMCPTool_BlueprintModify::Execute(const TSharedRef<FJsonObject>& 
 	{
 		return ExecuteRemoveFunction(Params);
 	}
+	if (Operation == BlueprintModifyOps::AddComponent)
+	{
+		return ExecuteAddComponent(Params);
+	}
 	// Level 3: Node Operations
 	if (Operation == BlueprintModifyOps::AddNode)
 	{
@@ -90,7 +97,7 @@ FMCPToolResult FMCPTool_BlueprintModify::Execute(const TSharedRef<FJsonObject>& 
 	}
 
 	return FMCPToolResult::Error(FString::Printf(
-		TEXT("Unknown operation: '%s'. Valid: create, add_variable, remove_variable, add_function, remove_function, add_node, add_nodes, delete_node, connect_pins, disconnect_pins, set_pin_value, batch"),
+		TEXT("Unknown operation: '%s'. Valid: create, add_variable, remove_variable, add_function, remove_function, add_component, add_node, add_nodes, delete_node, connect_pins, disconnect_pins, set_pin_value, batch"),
 		*Operation));
 }
 
@@ -209,9 +216,12 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteAddVariable(const TSharedRef<FJs
 		return FMCPToolResult::Error(TypeError);
 	}
 
+	// Extract optional default value
+	FString DefaultValue = ExtractOptionalString(Params, TEXT("default_value"));
+
 	// Add the variable
 	FString AddError;
-	if (!FBlueprintUtils::AddVariable(Context.Blueprint, VariableName, PinType, AddError))
+	if (!FBlueprintUtils::AddVariable(Context.Blueprint, VariableName, PinType, AddError, DefaultValue))
 	{
 		return FMCPToolResult::Error(AddError);
 	}
@@ -226,6 +236,10 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteAddVariable(const TSharedRef<FJs
 	TSharedPtr<FJsonObject> ResultData = Context.BuildResultJson();
 	ResultData->SetStringField(TEXT("variable_name"), VariableName);
 	ResultData->SetStringField(TEXT("variable_type"), VariableType);
+	if (!DefaultValue.IsEmpty())
+	{
+		ResultData->SetStringField(TEXT("default_value"), DefaultValue);
+	}
 
 	return FMCPToolResult::Success(
 		FString::Printf(TEXT("Added variable '%s' (%s) to Blueprint"), *VariableName, *VariableType),
@@ -356,6 +370,138 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteRemoveFunction(const TSharedRef<
 
 	return FMCPToolResult::Success(
 		FString::Printf(TEXT("Removed function '%s' from Blueprint"), *FunctionName),
+		ResultData
+	);
+}
+
+FMCPToolResult FMCPTool_BlueprintModify::ExecuteAddComponent(const TSharedRef<FJsonObject>& Params)
+{
+	// Extract parameters
+	TOptional<FMCPToolResult> Error;
+	FString ComponentClassName;
+	if (!ExtractRequiredString(Params, TEXT("component_class"), ComponentClassName, Error))
+	{
+		return Error.GetValue();
+	}
+
+	FString ComponentName = ExtractOptionalString(Params, TEXT("component_name"));
+	FString AttachTo = ExtractOptionalString(Params, TEXT("attach_to"));
+
+	// Load and validate Blueprint
+	FMCPBlueprintLoadContext Context;
+	if (auto LoadError = Context.LoadAndValidate(Params))
+	{
+		return LoadError.GetValue();
+	}
+
+	// Get or create SimpleConstructionScript
+	USimpleConstructionScript* SCS = Context.Blueprint->SimpleConstructionScript;
+	if (!SCS)
+	{
+		return FMCPToolResult::Error(TEXT("Blueprint does not support components (no SimpleConstructionScript)"));
+	}
+
+	// Try to find the component class with various prefixes
+	UClass* ComponentClass = nullptr;
+	TArray<FString> Prefixes = {
+		TEXT(""),
+		TEXT("/Script/Engine."),
+		TEXT("/Script/AIModule."),
+		TEXT("/Script/NavigationSystem."),
+		TEXT("/Script/PhysicsCore."),
+		TEXT("/Script/UMG."),
+		TEXT("/Script/EnhancedInput."),
+		TEXT("/Script/HeadMountedDisplay.")
+	};
+
+	for (const FString& Prefix : Prefixes)
+	{
+		FString FullPath = Prefix + ComponentClassName;
+		ComponentClass = LoadClass<UActorComponent>(nullptr, *FullPath);
+		if (ComponentClass)
+		{
+			break;
+		}
+	}
+
+	// Also try FindObject as fallback
+	if (!ComponentClass)
+	{
+		ComponentClass = FindObject<UClass>(nullptr, *ComponentClassName);
+		if (ComponentClass && !ComponentClass->IsChildOf(UActorComponent::StaticClass()))
+		{
+			ComponentClass = nullptr;
+		}
+	}
+
+	if (!ComponentClass)
+	{
+		return FMCPToolResult::Error(FString::Printf(
+			TEXT("Could not find component class: '%s'. Try full path like '/Script/Engine.StaticMeshComponent'"),
+			*ComponentClassName));
+	}
+
+	// Create the SCS node
+	USCS_Node* NewNode = SCS->CreateNode(ComponentClass, ComponentName.IsEmpty() ? *ComponentClass->GetName() : *ComponentName);
+	if (!NewNode)
+	{
+		return FMCPToolResult::Error(TEXT("Failed to create SCS node"));
+	}
+
+	// Attach to parent or add as root
+	if (!AttachTo.IsEmpty())
+	{
+		// Find parent node
+		USCS_Node* ParentNode = nullptr;
+		for (USCS_Node* Node : SCS->GetAllNodes())
+		{
+			if (Node && Node->GetVariableName().ToString() == AttachTo)
+			{
+				ParentNode = Node;
+				break;
+			}
+			// Also try matching by component template name
+			if (Node && Node->ComponentTemplate && Node->ComponentTemplate->GetName() == AttachTo)
+			{
+				ParentNode = Node;
+				break;
+			}
+		}
+
+		if (ParentNode)
+		{
+			ParentNode->AddChildNode(NewNode);
+		}
+		else
+		{
+			// Couldn't find parent, add as root and warn
+			SCS->AddNode(NewNode);
+			UE_LOG(LogUnrealClaude, Warning, TEXT("Parent component '%s' not found, added as root"), *AttachTo);
+		}
+	}
+	else
+	{
+		SCS->AddNode(NewNode);
+	}
+
+	// Compile and finalize
+	if (auto CompileError = Context.CompileAndFinalize(TEXT("Component added")))
+	{
+		return CompileError.GetValue();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> ResultData = Context.BuildResultJson();
+	ResultData->SetStringField(TEXT("component_class"), ComponentClass->GetName());
+	ResultData->SetStringField(TEXT("component_name"), NewNode->GetVariableName().ToString());
+	if (!AttachTo.IsEmpty())
+	{
+		ResultData->SetStringField(TEXT("attached_to"), AttachTo);
+	}
+
+	return FMCPToolResult::Success(
+		FString::Printf(TEXT("Added component '%s' (%s) to Blueprint"),
+			*NewNode->GetVariableName().ToString(), *ComponentClass->GetName()),
 		ResultData
 	);
 }
@@ -1002,6 +1148,7 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 		{
 			FString VarName = (*OpObj)->GetStringField(TEXT("variable_name"));
 			FString VarType = (*OpObj)->GetStringField(TEXT("variable_type"));
+			FString VarDefaultValue = (*OpObj)->GetStringField(TEXT("default_value"));
 			if (VarName.IsEmpty() || VarType.IsEmpty())
 			{
 				OpError = TEXT("variable_name and variable_type are required");
@@ -1015,7 +1162,7 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 				}
 				else
 				{
-					bOpSuccess = FBlueprintUtils::AddVariable(Context.Blueprint, VarName, PinType, OpError);
+					bOpSuccess = FBlueprintUtils::AddVariable(Context.Blueprint, VarName, PinType, OpError, VarDefaultValue);
 				}
 			}
 		}
@@ -1053,6 +1200,78 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 			else
 			{
 				bOpSuccess = FBlueprintUtils::RemoveFunction(Context.Blueprint, FuncName, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::AddComponent)
+		{
+			FString CompClass = (*OpObj)->GetStringField(TEXT("component_class"));
+			FString CompName = (*OpObj)->GetStringField(TEXT("component_name"));
+			FString CompAttachTo = (*OpObj)->GetStringField(TEXT("attach_to"));
+			if (CompClass.IsEmpty())
+			{
+				OpError = TEXT("component_class is required");
+			}
+			else
+			{
+				USimpleConstructionScript* SCS = Context.Blueprint->SimpleConstructionScript;
+				if (!SCS)
+				{
+					OpError = TEXT("Blueprint does not support components");
+				}
+				else
+				{
+					// Find component class with prefixes
+					UClass* ComponentClass = nullptr;
+					TArray<FString> Prefixes = {
+						TEXT(""), TEXT("/Script/Engine."), TEXT("/Script/AIModule."),
+						TEXT("/Script/NavigationSystem."), TEXT("/Script/PhysicsCore.")
+					};
+					for (const FString& Prefix : Prefixes)
+					{
+						ComponentClass = LoadClass<UActorComponent>(nullptr, *(Prefix + CompClass));
+						if (ComponentClass) break;
+					}
+
+					if (!ComponentClass)
+					{
+						OpError = FString::Printf(TEXT("Component class not found: %s"), *CompClass);
+					}
+					else
+					{
+						USCS_Node* NewNode = SCS->CreateNode(ComponentClass,
+							CompName.IsEmpty() ? *ComponentClass->GetName() : *CompName);
+						if (NewNode)
+						{
+							if (!CompAttachTo.IsEmpty())
+							{
+								USCS_Node* ParentNode = nullptr;
+								for (USCS_Node* Node : SCS->GetAllNodes())
+								{
+									if (Node && (Node->GetVariableName().ToString() == CompAttachTo ||
+										(Node->ComponentTemplate && Node->ComponentTemplate->GetName() == CompAttachTo)))
+									{
+										ParentNode = Node;
+										break;
+									}
+								}
+								if (ParentNode)
+									ParentNode->AddChildNode(NewNode);
+								else
+									SCS->AddNode(NewNode);
+							}
+							else
+							{
+								SCS->AddNode(NewNode);
+							}
+							bOpSuccess = true;
+							OpResult->SetStringField(TEXT("component_name"), NewNode->GetVariableName().ToString());
+						}
+						else
+						{
+							OpError = TEXT("Failed to create SCS node");
+						}
+					}
+				}
 			}
 		}
 		else if (Op == BlueprintModifyOps::AddNode)

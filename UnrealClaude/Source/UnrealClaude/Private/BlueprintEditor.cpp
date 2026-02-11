@@ -12,7 +12,8 @@ bool FBlueprintEditor::AddVariable(
 	UBlueprint* Blueprint,
 	const FString& VariableName,
 	const FEdGraphPinType& PinType,
-	FString& OutError)
+	FString& OutError,
+	const FString& DefaultValue)
 {
 	if (!Blueprint)
 	{
@@ -41,6 +42,19 @@ bool FBlueprintEditor::AddVariable(
 	{
 		OutError = TEXT("Failed to add variable");
 		return false;
+	}
+
+	// Set default value if provided
+	if (!DefaultValue.IsEmpty())
+	{
+		for (FBPVariableDescription& Var : Blueprint->NewVariables)
+		{
+			if (Var.VarName == VarName)
+			{
+				Var.DefaultValue = DefaultValue;
+				break;
+			}
+		}
 	}
 
 	UE_LOG(LogUnrealClaude, Log, TEXT("Added variable '%s' to Blueprint '%s'"),

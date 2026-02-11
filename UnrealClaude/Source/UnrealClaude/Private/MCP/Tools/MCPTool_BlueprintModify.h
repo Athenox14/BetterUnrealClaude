@@ -8,12 +8,13 @@
 /**
  * MCP Tool: Modify Blueprints (write operations)
  *
- * Level 2 Operations (Variables/Functions):
+ * Level 2 Operations (Variables/Functions/Components):
  *   - create: Create a new Blueprint
  *   - add_variable: Add a variable to a Blueprint
  *   - remove_variable: Remove a variable from a Blueprint
  *   - add_function: Add an empty function to a Blueprint
  *   - remove_function: Remove a function from a Blueprint
+ *   - add_component: Add a component to a Blueprint (e.g., AIPerceptionComponent, SphereCollision)
  *
  * Level 3 Operations (Nodes):
  *   - add_node: Add a single node to a graph
@@ -40,7 +41,7 @@ public:
 		Info.Description = TEXT(
 			"Create and modify Blueprints programmatically. Auto-compiles after changes.\n\n"
 			"Complexity Levels:\n"
-			"Level 2 (Structure): 'create', 'add_variable', 'remove_variable', 'add_function', 'remove_function'\n"
+			"Level 2 (Structure): 'create', 'add_variable', 'remove_variable', 'add_function', 'remove_function', 'add_component'\n"
 			"Level 3 (Nodes): 'add_node', 'add_nodes' (batch nodes), 'delete_node'\n"
 			"Level 4 (Wiring): 'connect_pins', 'disconnect_pins', 'set_pin_value'\n"
 			"Meta: 'batch' - execute multiple operations in one call (1 load, 1 compile)\n\n"
@@ -76,10 +77,20 @@ public:
 				TEXT("Variable name"), false),
 			FMCPToolParameter(TEXT("variable_type"), TEXT("string"),
 				TEXT("Variable type: 'bool', 'int32', 'float', 'FString', 'FVector', 'AActor*', etc."), false),
+			FMCPToolParameter(TEXT("default_value"), TEXT("string"),
+				TEXT("Default value for the variable (as string)"), false),
 
 			// For function operations
 			FMCPToolParameter(TEXT("function_name"), TEXT("string"),
 				TEXT("Function name"), false),
+
+			// For add_component operation
+			FMCPToolParameter(TEXT("component_class"), TEXT("string"),
+				TEXT("Component class to add (e.g., 'StaticMeshComponent', 'AIPerceptionComponent', 'SphereCollision', 'BoxCollision')"), false),
+			FMCPToolParameter(TEXT("component_name"), TEXT("string"),
+				TEXT("Name for the new component"), false),
+			FMCPToolParameter(TEXT("attach_to"), TEXT("string"),
+				TEXT("Name of parent component to attach to (optional, attaches to root if omitted)"), false),
 
 			// For node operations (Level 3)
 			FMCPToolParameter(TEXT("graph_name"), TEXT("string"),
@@ -136,6 +147,7 @@ private:
 	FMCPToolResult ExecuteRemoveVariable(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteAddFunction(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteRemoveFunction(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteAddComponent(const TSharedRef<FJsonObject>& Params);
 
 	// Level 3 Operations (Nodes)
 	FMCPToolResult ExecuteAddNode(const TSharedRef<FJsonObject>& Params);

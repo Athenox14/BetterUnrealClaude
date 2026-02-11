@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Claude Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+        #terminal-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        #status-bar {
+            height: 24px;
+            background: #16213e;
+            color: #8899aa;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 24px;
+            padding: 0 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+        #status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            background: #555;
+        }
+        #status-indicator.connected { background: #4ecca3; }
+        #status-indicator.connecting { background: #e6a817; }
+        #status-indicator.disconnected { background: #e74c3c; }
+        #terminal-wrapper {
+            flex: 1;
+            overflow: hidden;
+        }
+        .xterm { height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="terminal-container">
+        <div id="status-bar">
+            <span>
+                <span id="status-indicator" class="disconnected"></span>
+                <span id="status-text">Disconnected</span>
+            </span>
+            <span id="status-info"></span>
+        </div>
+        <div id="terminal-wrapper"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+    <script>
+        // Configuration
+        const WS_PORT = parseInt(new URLSearchParams(window.location.search).get('port') || '3001');
+        const WS_URL = `ws://localhost:${WS_PORT}`;
+
+        // Terminal setup
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 13,
+            fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
+            theme: {
+                background: '#1a1a2e',
+                foreground: '#e0e0e0',
+                cursor: '#e6a817',
+                cursorAccent: '#1a1a2e',
+                selectionBackground: '#3a3a5e',
+                black: '#1a1a2e',
+                red: '#e74c3c',
+                green: '#4ecca3',
+                yellow: '#e6a817',
+                blue: '#3498db',
+                magenta: '#9b59b6',
+                cyan: '#1abc9c',
+                white: '#e0e0e0',
+                brightBlack: '#555577',
+                brightRed: '#ff6b6b',
+                brightGreen: '#6eff9e',
+                brightYellow: '#ffd93d',
+                brightBlue: '#5dade2',
+                brightMagenta: '#c39bd3',
+                brightCyan: '#48c9b0',
+                brightWhite: '#ffffff'
+            },
+            allowProposedApi: true,
+            scrollback: 10000
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+
+        const termWrapper = document.getElementById('terminal-wrapper');
+        term.open(termWrapper);
+        fitAddon.fit();
+
+        // Status bar elements
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const statusInfo = document.getElementById('status-info');
+
+        function setStatus(state, text) {
+            statusIndicator.className = state;
+            statusText.textContent = text;
+        }
+
+        // WebSocket connection
+        let ws = null;
+        let reconnectTimer = null;
+        let reconnectDelay = 1000;
+
+        function connect() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                return;
+            }
+
+            setStatus('connecting', 'Connecting...');
+
+            try {
+                ws = new WebSocket(WS_URL);
+                ws.binaryType = 'arraybuffer';
+            } catch (e) {
+                setStatus('disconnected', 'Connection failed');
+                scheduleReconnect();
+                return;
+            }
+
+            ws.onopen = () => {
+                setStatus('connected', 'Connected');
+                reconnectDelay = 1000;
+
+                // Send terminal size
+                const dims = fitAddon.proposeDimensions();
+                if (dims) {
+                    ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+                }
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    // Could be a JSON control message or plain text
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'info') {
+                            statusInfo.textContent = msg.text || '';
+                        }
+                    } catch (e) {
+                        // Plain text output from CLI
+                        term.write(event.data);
+                    }
+                } else if (event.data instanceof ArrayBuffer) {
+                    // Binary data from CLI stdout
+                    const text = new TextDecoder().decode(event.data);
+                    term.write(text);
+                }
+            };
+
+            ws.onclose = () => {
+                setStatus('disconnected', 'Disconnected');
+                scheduleReconnect();
+            };
+
+            ws.onerror = () => {
+                // onclose will fire after this
+            };
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => {
+                reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+                connect();
+            }, reconnectDelay);
+        }
+
+        // Send terminal input to WebSocket
+        term.onData((data) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        // Handle terminal resize
+        const resizeObserver = new ResizeObserver(() => {
+            fitAddon.fit();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const dims = fitAddon.proposeDimensions();
+                if (dims) {
+                    ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+                }
+            }
+        });
+        resizeObserver.observe(termWrapper);
+
+        // Initial connection
+        term.writeln('\x1b[1;33mClaude Terminal\x1b[0m - Connecting to CLI...');
+        term.writeln('');
+        connect();
+    </script>
+</body>
+</html>

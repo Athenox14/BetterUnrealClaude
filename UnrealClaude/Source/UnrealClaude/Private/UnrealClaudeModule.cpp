@@ -2,7 +2,7 @@
 
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeCommands.h"
-#include "ClaudeEditorWidget.h"
+#include "SClaudeTerminalWidget.h"
 #include "ClaudeCodeRunner.h"
 #include "ClaudeSubsystem.h"
 #include "ScriptExecutionManager.h"
@@ -135,7 +135,7 @@ void FUnrealClaudeModule::StartupModule()
 				.TabRole(ETabRole::NomadTab)
 				.Label(LOCTEXT("ClaudeTabTitle", "Claude Assistant"))
 				[
-					SNew(SClaudeEditorWidget)
+					SNew(SClaudeTerminalWidget)
 				];
 		}))
 		.SetDisplayName(LOCTEXT("ClaudeTabTitle", "Claude Assistant"))

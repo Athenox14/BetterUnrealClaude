@@ -26,6 +26,10 @@ public:
 			"- 'StaticMeshActor' - Static mesh placeholder\n"
 			"- 'CameraActor' - Camera\n"
 			"- 'PlayerStart' - Player spawn point\n"
+			"- 'NavMeshBoundsVolume' - Navigation mesh bounds volume\n"
+			"- 'TriggerVolume' - Trigger volume\n"
+			"- 'BlockingVolume' - Blocking volume\n"
+			"- 'PostProcessVolume' - Post-process volume\n"
 			"- '/Game/Blueprints/BP_MyActor' - Custom Blueprint actors\n\n"
 			"Returns: Actor name, class, label, and spawn location."
 		);
