@@ -3,18 +3,12 @@
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeCommands.h"
 #include "ClaudeCodeRunner.h"
-#include "ClaudeSubsystem.h"
 #include "ScriptExecutionManager.h"
 #include "MCP/UnrealClaudeMCPServer.h"
 #include "ProjectContext.h"
 
-#include "Framework/Notifications/NotificationManager.h"
 #include "LevelEditor.h"
 #include "ToolMenus.h"
-#include "Widgets/Input/SEditableTextBox.h"
-#include "Widgets/Notifications/SNotificationList.h"
-#include "Framework/Application/SlateApplication.h"
-#include "HttpServerModule.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
@@ -47,82 +41,6 @@ void FUnrealClaudeModule::StartupModule()
 		FExecuteAction::CreateLambda([]()
 		{
 			FUnrealClaudeModule::LaunchClaudeTerminal();
-		}),
-		FCanExecuteAction::CreateLambda([]()
-		{
-			return FClaudeCodeRunner::IsClaudeAvailable();
-		})
-	);
-
-	// Map QuickAsk command - shows a popup for quick questions
-	PluginCommands->MapAction(
-		FUnrealClaudeCommands::Get().QuickAsk,
-		FExecuteAction::CreateLambda([]()
-		{
-			// Create a simple input dialog
-			TSharedRef<SWindow> QuickAskWindow = SNew(SWindow)
-				.Title(LOCTEXT("QuickAskTitle", "Quick Ask Claude"))
-				.ClientSize(FVector2D(500, 100))
-				.SupportsMinimize(false)
-				.SupportsMaximize(false);
-
-			TSharedPtr<SEditableTextBox> InputBox;
-
-			QuickAskWindow->SetContent(
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot()
-				.Padding(10)
-				.AutoHeight()
-				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("QuickAskLabel", "Ask Claude a quick question:"))
-				]
-				+ SVerticalBox::Slot()
-				.Padding(10, 0, 10, 10)
-				.FillHeight(1.0f)
-				[
-					SAssignNew(InputBox, SEditableTextBox)
-					.HintText(LOCTEXT("QuickAskHint", "Type your question here..."))
-					.OnTextCommitted_Lambda([QuickAskWindow](const FText& Text, ETextCommit::Type CommitType)
-					{
-						if (CommitType == ETextCommit::OnEnter && !Text.IsEmpty())
-						{
-							// Close the window
-							QuickAskWindow->RequestDestroyWindow();
-
-							// Send prompt to Claude
-							FString Prompt = Text.ToString();
-							FClaudePromptOptions Options;
-							Options.bIncludeEngineContext = true;
-							Options.bIncludeProjectContext = true;
-							FClaudeCodeSubsystem::Get().SendPrompt(
-								Prompt,
-								FOnClaudeResponse::CreateLambda([](const FString& Response, bool bSuccess)
-								{
-									// Show response in notification
-									FNotificationInfo Info(FText::FromString(
-										bSuccess
-											? (Response.Len() > 300 ? Response.Left(300) + TEXT("...") : Response)
-											: TEXT("Error: ") + Response));
-									Info.ExpireDuration = bSuccess ? 15.0f : 5.0f;
-									Info.bUseLargeFont = false;
-									Info.bUseSuccessFailIcons = true;
-									FSlateNotificationManager::Get().AddNotification(Info);
-								}),
-								Options
-							);
-						}
-					})
-				]
-			);
-
-			FSlateApplication::Get().AddWindow(QuickAskWindow);
-
-			// Focus the input box
-			if (InputBox.IsValid())
-			{
-				FSlateApplication::Get().SetKeyboardFocus(InputBox);
-			}
 		}),
 		FCanExecuteAction::CreateLambda([]()
 		{
@@ -198,13 +116,6 @@ void FUnrealClaudeModule::RegisterMenus()
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help")
 		);
 
-		Section.AddMenuEntryWithCommandList(
-			FUnrealClaudeCommands::Get().QuickAsk,
-			PluginCommands,
-			LOCTEXT("QuickAskMenuItem", "Quick Ask Claude"),
-			LOCTEXT("QuickAskMenuItemTooltip", "Quickly ask Claude a question (Ctrl+Alt+C)"),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help")
-		);
 	}
 
 	// Add to the toolbar

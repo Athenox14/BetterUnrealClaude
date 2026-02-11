@@ -25,9 +25,6 @@ public:
 	virtual void RegisterCommands() override;
 
 public:
-	/** Open the Claude Assistant panel */
+	/** Open Claude CLI in a new terminal window */
 	TSharedPtr<FUICommandInfo> OpenClaudePanel;
-	
-	/** Quick ask - opens a small dialog for quick questions */
-	TSharedPtr<FUICommandInfo> QuickAsk;
 };
