@@ -9,21 +9,17 @@
 #include "Tools/MCPTool_SpawnActor.h"
 #include "Tools/MCPTool_GetLevelActors.h"
 #include "Tools/MCPTool_SetProperty.h"
-#include "Tools/MCPTool_SetComponentProperty.h"
 #include "Tools/MCPTool_RunConsoleCommand.h"
 #include "Tools/MCPTool_DeleteActors.h"
 #include "Tools/MCPTool_MoveActor.h"
 #include "Tools/MCPTool_GetOutputLog.h"
 #include "Tools/MCPTool_ExecuteScript.h"
-#include "Tools/MCPTool_CleanupScripts.h"
-#include "Tools/MCPTool_GetScriptHistory.h"
 #include "Tools/MCPTool_CaptureViewport.h"
 #include "Tools/MCPTool_BlueprintQuery.h"
 #include "Tools/MCPTool_BlueprintModify.h"
 #include "Tools/MCPTool_AnimBlueprintModify.h"
 #include "Tools/MCPTool_AssetSearch.h"
-#include "Tools/MCPTool_AssetDependencies.h"
-#include "Tools/MCPTool_AssetReferencers.h"
+#include "Tools/MCPTool_AssetRelations.h"
 #include "Tools/MCPTool_EnhancedInput.h"
 #include "Tools/MCPTool_Character.h"
 #include "Tools/MCPTool_CharacterData.h"
@@ -33,12 +29,8 @@
 #include "Tools/MCPTool_SearchNodes.h"
 #include "Tools/MCPTool_BehaviorTreeModify.h"
 
-// Task queue tools
-#include "Tools/MCPTool_TaskSubmit.h"
-#include "Tools/MCPTool_TaskStatus.h"
-#include "Tools/MCPTool_TaskResult.h"
-#include "Tools/MCPTool_TaskList.h"
-#include "Tools/MCPTool_TaskCancel.h"
+// Unified task queue tool
+#include "Tools/MCPTool_Task.h"
 
 FMCPToolRegistry::FMCPToolRegistry()
 {
@@ -75,16 +67,13 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 	RegisterTool(MakeShared<FMCPTool_SpawnActor>());
 	RegisterTool(MakeShared<FMCPTool_GetLevelActors>());
 	RegisterTool(MakeShared<FMCPTool_SetProperty>());
-	RegisterTool(MakeShared<FMCPTool_SetComponentProperty>());
 	RegisterTool(MakeShared<FMCPTool_RunConsoleCommand>());
 	RegisterTool(MakeShared<FMCPTool_DeleteActors>());
 	RegisterTool(MakeShared<FMCPTool_MoveActor>());
 	RegisterTool(MakeShared<FMCPTool_GetOutputLog>());
 
-	// Script execution tools
+	// Script execution (includes history + cleanup operations)
 	RegisterTool(MakeShared<FMCPTool_ExecuteScript>());
-	RegisterTool(MakeShared<FMCPTool_CleanupScripts>());
-	RegisterTool(MakeShared<FMCPTool_GetScriptHistory>());
 
 	// Viewport capture
 	RegisterTool(MakeShared<FMCPTool_CaptureViewport>());
@@ -96,8 +85,7 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 
 	// Asset tools
 	RegisterTool(MakeShared<FMCPTool_AssetSearch>());
-	RegisterTool(MakeShared<FMCPTool_AssetDependencies>());
-	RegisterTool(MakeShared<FMCPTool_AssetReferencers>());
+	RegisterTool(MakeShared<FMCPTool_AssetRelations>());
 
 	// Enhanced Input tools
 	RegisterTool(MakeShared<FMCPTool_EnhancedInput>());
@@ -132,11 +120,7 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 		}
 	}
 
-	RegisterTool(MakeShared<FMCPTool_TaskSubmit>(TaskQueue));
-	RegisterTool(MakeShared<FMCPTool_TaskStatus>(TaskQueue));
-	RegisterTool(MakeShared<FMCPTool_TaskResult>(TaskQueue));
-	RegisterTool(MakeShared<FMCPTool_TaskList>(TaskQueue));
-	RegisterTool(MakeShared<FMCPTool_TaskCancel>(TaskQueue));
+	RegisterTool(MakeShared<FMCPTool_Task>(TaskQueue));
 
 	UE_LOG(LogUnrealClaude, Log, TEXT("Registered %d MCP tools"), Tools.Num());
 }

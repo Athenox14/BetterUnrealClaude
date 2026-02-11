@@ -1,14 +1,30 @@
 // Copyright Natali Caggiano. All Rights Reserved.
 
-#include "MCPTool_AssetReferencers.h"
+#include "MCPTool_AssetRelations.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 
-FMCPToolResult FMCPTool_AssetReferencers::Execute(const TSharedRef<FJsonObject>& Params)
+FMCPToolResult FMCPTool_AssetRelations::Execute(const TSharedRef<FJsonObject>& Params)
 {
-	// Extract required asset_path parameter
-	FString AssetPath;
+	// Extract operation
+	FString Operation;
 	TOptional<FMCPToolResult> Error;
+	if (!ExtractRequiredString(Params, TEXT("operation"), Operation, Error))
+	{
+		return Error.GetValue();
+	}
+	Operation = Operation.ToLower();
+
+	bool bIsDependencies = (Operation == TEXT("dependencies"));
+	bool bIsReferencers = (Operation == TEXT("referencers"));
+	if (!bIsDependencies && !bIsReferencers)
+	{
+		return FMCPToolResult::Error(FString::Printf(
+			TEXT("Unknown operation: '%s'. Valid: 'dependencies', 'referencers'"), *Operation));
+	}
+
+	// Extract required asset_path
+	FString AssetPath;
 	if (!ExtractRequiredString(Params, TEXT("asset_path"), AssetPath, Error))
 	{
 		return Error.GetValue();
@@ -23,19 +39,17 @@ FMCPToolResult FMCPTool_AssetReferencers::Execute(const TSharedRef<FJsonObject>&
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
 
-	// Normalize the asset path - handle both package paths and full object paths
+	// Normalize path
 	FString PackagePath = AssetPath;
 	if (PackagePath.Contains(TEXT(".")))
 	{
-		// Extract package path from full object path (e.g., /Game/BP.BP_C -> /Game/BP)
 		PackagePath = FPackageName::ObjectPathToPackageName(AssetPath);
 	}
 
-	// Verify the asset exists
+	// Verify asset exists
 	FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(AssetPath));
 	if (!AssetData.IsValid())
 	{
-		// Try with package name
 		TArray<FAssetData> AssetsInPackage;
 		AssetRegistry.GetAssetsByPackageName(FName(*PackagePath), AssetsInPackage);
 		if (AssetsInPackage.Num() == 0)
@@ -45,69 +59,68 @@ FMCPToolResult FMCPTool_AssetReferencers::Execute(const TSharedRef<FJsonObject>&
 		AssetData = AssetsInPackage[0];
 	}
 
-	// Query referencers
-	TArray<FName> Referencers;
-
-	// Build dependency query flags - construct FDependencyQuery from EDependencyQuery enum
+	// Build query flags
 	UE::AssetRegistry::FDependencyQuery QueryFlags;
 	if (!bIncludeSoft)
 	{
-		// Only hard references
 		QueryFlags = UE::AssetRegistry::FDependencyQuery(UE::AssetRegistry::EDependencyQuery::Hard);
 	}
-	// else: default FDependencyQuery() returns all references (no requirements)
 
-	AssetRegistry.GetReferencers(
-		FName(*PackagePath),
-		Referencers,
-		UE::AssetRegistry::EDependencyCategory::Package,
-		QueryFlags
-	);
-
-	// Build filtered list (skip engine/script packages)
-	TArray<FName> FilteredRefs;
-	for (const FName& RefPath : Referencers)
+	// Query relationships
+	TArray<FName> RelatedAssets;
+	if (bIsDependencies)
 	{
-		FString PathStr = RefPath.ToString();
+		AssetRegistry.GetDependencies(FName(*PackagePath), RelatedAssets,
+			UE::AssetRegistry::EDependencyCategory::Package, QueryFlags);
+	}
+	else
+	{
+		AssetRegistry.GetReferencers(FName(*PackagePath), RelatedAssets,
+			UE::AssetRegistry::EDependencyCategory::Package, QueryFlags);
+	}
+
+	// Filter out engine/script packages
+	TArray<FName> Filtered;
+	for (const FName& Path : RelatedAssets)
+	{
+		FString PathStr = Path.ToString();
 		if (!PathStr.StartsWith(TEXT("/Script/")) && !PathStr.StartsWith(TEXT("/Engine/")))
 		{
-			FilteredRefs.Add(RefPath);
+			Filtered.Add(Path);
 		}
 	}
 
-	// Apply pagination
-	int32 Total = FilteredRefs.Num();
+	// Pagination
+	int32 Total = Filtered.Num();
 	int32 StartIndex = FMath::Min(Offset, Total);
 	int32 EndIndex = FMath::Min(StartIndex + Limit, Total);
 	int32 Count = EndIndex - StartIndex;
 	bool bHasMore = EndIndex < Total;
 
-	// Build result array for the paginated slice
-	TArray<TSharedPtr<FJsonValue>> ReferencerArray;
+	// Build result array
+	FString ResultArrayKey = bIsDependencies ? TEXT("dependencies") : TEXT("referencers");
+	TArray<TSharedPtr<FJsonValue>> ResultArray;
 	for (int32 i = StartIndex; i < EndIndex; ++i)
 	{
-		const FName& RefPath = FilteredRefs[i];
-		FString PathStr = RefPath.ToString();
+		TSharedPtr<FJsonObject> EntryJson = MakeShared<FJsonObject>();
+		EntryJson->SetStringField(TEXT("path"), Filtered[i].ToString());
 
-		TSharedPtr<FJsonObject> RefJson = MakeShared<FJsonObject>();
-		RefJson->SetStringField(TEXT("path"), PathStr);
-
-		// Try to get the asset class for this referencer
-		TArray<FAssetData> RefAssets;
-		AssetRegistry.GetAssetsByPackageName(RefPath, RefAssets);
-		if (RefAssets.Num() > 0)
+		TArray<FAssetData> EntryAssets;
+		AssetRegistry.GetAssetsByPackageName(Filtered[i], EntryAssets);
+		if (EntryAssets.Num() > 0)
 		{
-			RefJson->SetStringField(TEXT("class"), RefAssets[0].AssetClassPath.GetAssetName().ToString());
-			RefJson->SetStringField(TEXT("name"), RefAssets[0].AssetName.ToString());
+			EntryJson->SetStringField(TEXT("class"), EntryAssets[0].AssetClassPath.GetAssetName().ToString());
+			EntryJson->SetStringField(TEXT("name"), EntryAssets[0].AssetName.ToString());
 		}
 
-		ReferencerArray.Add(MakeShared<FJsonValueObject>(RefJson));
+		ResultArray.Add(MakeShared<FJsonValueObject>(EntryJson));
 	}
 
-	// Build result data with pagination metadata
+	// Build result
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
 	ResultData->SetStringField(TEXT("asset_path"), AssetPath);
-	ResultData->SetArrayField(TEXT("referencers"), ReferencerArray);
+	ResultData->SetStringField(TEXT("direction"), Operation);
+	ResultData->SetArrayField(ResultArrayKey, ResultArray);
 	ResultData->SetNumberField(TEXT("count"), Count);
 	ResultData->SetNumberField(TEXT("total"), Total);
 	ResultData->SetNumberField(TEXT("offset"), StartIndex);
@@ -120,22 +133,23 @@ FMCPToolResult FMCPTool_AssetReferencers::Execute(const TSharedRef<FJsonObject>&
 	ResultData->SetBoolField(TEXT("include_soft"), bIncludeSoft);
 
 	// Build message
+	FString TypeLabel = bIsDependencies ? TEXT("dependenc") : TEXT("referencer");
+	FString Plural = bIsDependencies ? (Total == 1 ? TEXT("y") : TEXT("ies")) : (Total == 1 ? TEXT("") : TEXT("s"));
 	FString Message;
-	if (Total == 0)
+	if (Total == 0 && bIsReferencers)
 	{
 		Message = FString::Printf(TEXT("No referencers found for '%s' - this asset appears unused"),
 			*AssetData.AssetName.ToString());
 	}
 	else if (Count == Total)
 	{
-		Message = FString::Printf(TEXT("Found %d referencer%s for '%s'"),
-			Total, Total == 1 ? TEXT("") : TEXT("s"),
-			*AssetData.AssetName.ToString());
+		Message = FString::Printf(TEXT("Found %d %s%s for '%s'"),
+			Total, *TypeLabel, *Plural, *AssetData.AssetName.ToString());
 	}
 	else
 	{
-		Message = FString::Printf(TEXT("Found %d referencers (showing %d-%d of %d total) for '%s'"),
-			Count, StartIndex + 1, EndIndex, Total,
+		Message = FString::Printf(TEXT("Found %d %s%s (showing %d-%d of %d total) for '%s'"),
+			Count, *TypeLabel, *Plural, StartIndex + 1, EndIndex, Total,
 			*AssetData.AssetName.ToString());
 	}
 

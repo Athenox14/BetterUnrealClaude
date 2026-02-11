@@ -18,6 +18,39 @@ FMCPToolResult FMCPTool_ExecuteScript::Execute(const TSharedRef<FJsonObject>& Pa
 		return ExecuteSync(Params);
 	}
 
+	// Route by operation
+	FString Operation = ExtractOptionalString(Params, TEXT("operation"));
+	if (Operation.IsEmpty()) { Operation = TEXT("run"); }
+	Operation = Operation.ToLower();
+
+	if (Operation == TEXT("history"))
+	{
+		return HandleHistory(Params);
+	}
+	else if (Operation == TEXT("cleanup"))
+	{
+		return HandleCleanup();
+	}
+	else if (Operation != TEXT("run"))
+	{
+		return FMCPToolResult::Error(FString::Printf(
+			TEXT("Unknown operation: '%s'. Valid: 'run', 'history', 'cleanup'"), *Operation));
+	}
+
+	// --- 'run' operation below ---
+
+	// Validate required params for run
+	FString ScriptType = ExtractOptionalString(Params, TEXT("script_type"));
+	if (ScriptType.IsEmpty())
+	{
+		return FMCPToolResult::Error(TEXT("'script_type' is required for 'run' operation"));
+	}
+	FString ScriptContent = ExtractOptionalString(Params, TEXT("script_content"));
+	if (ScriptContent.IsEmpty())
+	{
+		return FMCPToolResult::Error(TEXT("'script_content' is required for 'run' operation"));
+	}
+
 	// Async execution - submit to task queue
 	if (!TaskQueue.IsValid())
 	{
@@ -47,12 +80,11 @@ FMCPToolResult FMCPTool_ExecuteScript::Execute(const TSharedRef<FJsonObject>& Pa
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
 	ResultData->SetStringField(TEXT("task_id"), TaskId.ToString());
 	ResultData->SetStringField(TEXT("status"), TEXT("pending"));
-	ResultData->SetStringField(TEXT("message"), TEXT("Script submitted for execution. Use task_status/task_result to check progress."));
+	ResultData->SetStringField(TEXT("message"), TEXT("Script submitted for execution. Use task(operation='status') to check progress."));
 	ResultData->SetNumberField(TEXT("timeout_ms"), ScriptTimeoutMs);
 
 	// Include script info
-	FString ScriptType, Description;
-	Params->TryGetStringField(TEXT("script_type"), ScriptType);
+	FString Description;
 	Params->TryGetStringField(TEXT("description"), Description);
 	ResultData->SetStringField(TEXT("script_type"), ScriptType);
 	if (!Description.IsEmpty())
@@ -61,7 +93,7 @@ FMCPToolResult FMCPTool_ExecuteScript::Execute(const TSharedRef<FJsonObject>& Pa
 	}
 
 	return FMCPToolResult::Success(
-		FString::Printf(TEXT("Script execution queued. Task ID: %s. Poll task_status('%s') for progress."),
+		FString::Printf(TEXT("Script execution queued. Task ID: %s. Use task(operation='status', task_id='%s') to poll."),
 			*TaskId.ToString(), *TaskId.ToString()),
 		ResultData);
 }
@@ -167,4 +199,45 @@ FMCPToolResult FMCPTool_ExecuteScript::ExecuteSync(const TSharedRef<FJsonObject>
 		ErrorResult.Data = ResultData;
 		return ErrorResult;
 	}
+}
+
+FMCPToolResult FMCPTool_ExecuteScript::HandleHistory(const TSharedRef<FJsonObject>& Params)
+{
+	int32 Count = FMath::Clamp(ExtractOptionalNumber<int32>(Params, TEXT("count"), 10), 1, 50);
+
+	TArray<FScriptHistoryEntry> RecentScripts = FScriptExecutionManager::Get().GetRecentScripts(Count);
+
+	TArray<TSharedPtr<FJsonValue>> ScriptsArray;
+	for (const FScriptHistoryEntry& Entry : RecentScripts)
+	{
+		TSharedPtr<FJsonObject> ScriptJson = MakeShared<FJsonObject>();
+		ScriptJson->SetStringField(TEXT("type"), ScriptTypeToString(Entry.ScriptType));
+		ScriptJson->SetStringField(TEXT("filename"), Entry.Filename);
+		ScriptJson->SetStringField(TEXT("description"), Entry.Description);
+		ScriptJson->SetBoolField(TEXT("success"), Entry.bSuccess);
+		ScriptJson->SetStringField(TEXT("result"), Entry.ResultMessage);
+		ScriptJson->SetStringField(TEXT("timestamp"), Entry.Timestamp.ToString(TEXT("%Y-%m-%dT%H:%M:%SZ")));
+		ScriptsArray.Add(MakeShared<FJsonValueObject>(ScriptJson));
+	}
+
+	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
+	ResultData->SetArrayField(TEXT("scripts"), ScriptsArray);
+	ResultData->SetNumberField(TEXT("count"), RecentScripts.Num());
+	ResultData->SetStringField(TEXT("formatted_context"),
+		FScriptExecutionManager::Get().FormatHistoryForContext(Count));
+
+	return FMCPToolResult::Success(
+		FString::Printf(TEXT("Retrieved %d recent script executions"), RecentScripts.Num()), ResultData);
+}
+
+FMCPToolResult FMCPTool_ExecuteScript::HandleCleanup()
+{
+	UE_LOG(LogUnrealClaude, Log, TEXT("Cleaning up all generated scripts and history"));
+
+	FString ResultMessage = FScriptExecutionManager::Get().CleanupAll();
+
+	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
+	ResultData->SetStringField(TEXT("message"), ResultMessage);
+
+	return FMCPToolResult::Success(ResultMessage, ResultData);
 }

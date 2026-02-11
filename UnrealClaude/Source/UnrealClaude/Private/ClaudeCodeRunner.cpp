@@ -1349,5 +1349,3 @@ void FClaudeCodeRunner::ExecuteProcess()
 
 #endif // PLATFORM_WINDOWS
 }
-
-// FClaudeCodeSubsystem is now in ClaudeSubsystem.cpp

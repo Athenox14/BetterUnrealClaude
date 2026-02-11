@@ -42,38 +42,23 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("execute_script");
 		Info.Description = TEXT(
-			"Execute custom scripts in Unreal Engine with user permission.\n\n"
-			"IMPORTANT: Only use this tool when no dedicated MCP tool can accomplish the task. "
-			"Prefer specific tools first: spawn_actor, move_actor, set_property, blueprint_modify, "
-			"open_level, asset_search, etc. Scripts require user approval and are slower than dedicated tools.\n\n"
-			"Script types:\n"
-			"- 'cpp': C++ via Live Coding (auto-retries on compile failure)\n"
-			"- 'python': Python script (requires Python plugin)\n"
-			"- 'console': Console command batch\n"
-			"- 'editor_utility': Editor Utility Widget/Blueprint\n\n"
-			"IMPORTANT: Include @Description in script header for history tracking:\n"
-			"/** @UnrealClaude Script\\n * @Description: What this script does */\n\n"
-			"Returns: Script execution result, output, and any errors."
-		);
+			"Execute custom scripts, view history, or cleanup generated files.\n\n"
+			"Operations: 'run' (default), 'history', 'cleanup'.\n\n"
+			"IMPORTANT for 'run': Only use when no dedicated MCP tool can accomplish the task. "
+			"Prefer specific tools first. Scripts require user approval.\n\n"
+			"Script types for 'run': 'cpp', 'python', 'console', 'editor_utility'.\n"
+			"Include @Description in script header for history tracking.");
 		Info.Parameters = {
-			FMCPToolParameter(
-				TEXT("script_type"),
-				TEXT("string"),
-				TEXT("Type: 'cpp', 'python', 'console', or 'editor_utility'"),
-				true
-			),
-			FMCPToolParameter(
-				TEXT("script_content"),
-				TEXT("string"),
-				TEXT("The script code. MUST include @Description in header comment."),
-				true
-			),
-			FMCPToolParameter(
-				TEXT("description"),
-				TEXT("string"),
-				TEXT("Brief description (optional if @Description in header)"),
-				false
-			)
+			FMCPToolParameter(TEXT("operation"), TEXT("string"),
+				TEXT("Operation: 'run' (default), 'history', 'cleanup'"), false, TEXT("run")),
+			FMCPToolParameter(TEXT("script_type"), TEXT("string"),
+				TEXT("Type for 'run': 'cpp', 'python', 'console', 'editor_utility'"), false),
+			FMCPToolParameter(TEXT("script_content"), TEXT("string"),
+				TEXT("Script code for 'run'. MUST include @Description in header."), false),
+			FMCPToolParameter(TEXT("description"), TEXT("string"),
+				TEXT("Brief description for 'run' (optional if @Description in header)"), false),
+			FMCPToolParameter(TEXT("count"), TEXT("number"),
+				TEXT("Number of entries for 'history' (1-50, default: 10)"), false, TEXT("10"))
 		};
 		Info.Annotations = FMCPToolAnnotations::Modifying();
 		Info.Annotations.bDestructiveHint = true; // Scripts can do anything
@@ -88,4 +73,10 @@ private:
 
 	/** Execute script synchronously (called by task queue) */
 	FMCPToolResult ExecuteSync(const TSharedRef<FJsonObject>& Params);
+
+	/** Handle history operation */
+	FMCPToolResult HandleHistory(const TSharedRef<FJsonObject>& Params);
+
+	/** Handle cleanup operation */
+	FMCPToolResult HandleCleanup();
 };

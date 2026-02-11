@@ -2,14 +2,38 @@
 
 #include "MCPTool_SetProperty.h"
 #include "MCP/MCPParamValidator.h"
+#include "MCP/MCPBlueprintLoadContext.h"
+#include "BlueprintUtils.h"
 #include "UnrealClaudeModule.h"
 #include "Editor.h"
 #include "Engine/World.h"
+#include "Engine/Blueprint.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
 #include "GameFramework/Actor.h"
 #include "EngineUtils.h"
 #include "UObject/PropertyAccessUtil.h"
 
 FMCPToolResult FMCPTool_SetProperty::Execute(const TSharedRef<FJsonObject>& Params)
+{
+	FString Target = ExtractOptionalString(Params, TEXT("target"));
+	if (Target.IsEmpty()) { Target = TEXT("actor"); }
+	Target = Target.ToLower();
+
+	if (Target == TEXT("blueprint_component"))
+	{
+		return ExecuteOnBlueprintComponent(Params);
+	}
+	else if (Target == TEXT("actor"))
+	{
+		return ExecuteOnActor(Params);
+	}
+
+	return FMCPToolResult::Error(FString::Printf(
+		TEXT("Unknown target: '%s'. Valid: 'actor', 'blueprint_component'"), *Target));
+}
+
+FMCPToolResult FMCPTool_SetProperty::ExecuteOnActor(const TSharedRef<FJsonObject>& Params)
 {
 	// Validate editor context using base class
 	UWorld* World = nullptr;
@@ -37,7 +61,6 @@ FMCPToolResult FMCPTool_SetProperty::Execute(const TSharedRef<FJsonObject>& Para
 		return ParamError.GetValue();
 	}
 
-	const TSharedPtr<FJsonValue>* ValuePtr = nullptr;
 	if (!Params->HasField(TEXT("value")))
 	{
 		return FMCPToolResult::Error(TEXT("Missing required parameter: value"));
@@ -69,6 +92,136 @@ FMCPToolResult FMCPTool_SetProperty::Execute(const TSharedRef<FJsonObject>& Para
 
 	return FMCPToolResult::Success(
 		FString::Printf(TEXT("Set property '%s' on actor '%s'"), *PropertyPath, *Actor->GetName()),
+		ResultData
+	);
+}
+
+FMCPToolResult FMCPTool_SetProperty::ExecuteOnBlueprintComponent(const TSharedRef<FJsonObject>& Params)
+{
+	TOptional<FMCPToolResult> ParamError;
+
+	FString ComponentName;
+	if (!ExtractRequiredString(Params, TEXT("component_name"), ComponentName, ParamError))
+	{
+		return ParamError.GetValue();
+	}
+
+	FString PropertyPath;
+	if (!ExtractRequiredString(Params, TEXT("property"), PropertyPath, ParamError))
+	{
+		return ParamError.GetValue();
+	}
+
+	if (!Params->HasField(TEXT("value")))
+	{
+		return FMCPToolResult::Error(TEXT("Missing required parameter: value"));
+	}
+	TSharedPtr<FJsonValue> Value = Params->TryGetField(TEXT("value"));
+
+	// Load and validate Blueprint
+	FMCPBlueprintLoadContext Context;
+	if (auto LoadError = Context.LoadAndValidate(Params))
+	{
+		return LoadError.GetValue();
+	}
+
+	// Get SimpleConstructionScript
+	USimpleConstructionScript* SCS = Context.Blueprint->SimpleConstructionScript;
+	if (!SCS)
+	{
+		return FMCPToolResult::Error(TEXT("Blueprint does not have a SimpleConstructionScript (not an Actor Blueprint?)"));
+	}
+
+	// Find the component by name
+	UActorComponent* ComponentTemplate = nullptr;
+	FString FoundComponentName;
+
+	for (USCS_Node* Node : SCS->GetAllNodes())
+	{
+		if (!Node || !Node->ComponentTemplate) continue;
+
+		FString VarName = Node->GetVariableName().ToString();
+		FString TemplateName = Node->ComponentTemplate->GetName();
+		FString ClassName = Node->ComponentClass ? Node->ComponentClass->GetName() : TEXT("");
+
+		if (VarName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+			VarName.Contains(ComponentName) ||
+			TemplateName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+			TemplateName.Contains(ComponentName) ||
+			ClassName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+			ClassName.Contains(ComponentName))
+		{
+			ComponentTemplate = Node->ComponentTemplate;
+			FoundComponentName = VarName;
+			break;
+		}
+	}
+
+	// Also check inherited components from the CDO
+	if (!ComponentTemplate)
+	{
+		UClass* GeneratedClass = Context.Blueprint->GeneratedClass;
+		if (GeneratedClass)
+		{
+			if (AActor* ActorCDO = Cast<AActor>(GeneratedClass->GetDefaultObject()))
+			{
+				for (UActorComponent* Comp : ActorCDO->GetComponents())
+				{
+					if (!Comp) continue;
+					FString CompName = Comp->GetName();
+					FString CompClassName = Comp->GetClass()->GetName();
+
+					if (CompName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+						CompName.Contains(ComponentName) ||
+						CompClassName.Equals(ComponentName, ESearchCase::IgnoreCase) ||
+						CompClassName.Contains(ComponentName))
+					{
+						ComponentTemplate = Comp;
+						FoundComponentName = CompName;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	if (!ComponentTemplate)
+	{
+		TArray<FString> AvailableComponents;
+		for (USCS_Node* Node : SCS->GetAllNodes())
+		{
+			if (Node && Node->ComponentTemplate)
+			{
+				AvailableComponents.Add(FString::Printf(TEXT("%s (%s)"),
+					*Node->GetVariableName().ToString(),
+					*Node->ComponentTemplate->GetClass()->GetName()));
+			}
+		}
+
+		return FMCPToolResult::Error(FString::Printf(
+			TEXT("Component '%s' not found. Available: [%s]"),
+			*ComponentName, *FString::Join(AvailableComponents, TEXT(", "))));
+	}
+
+	// Set the property using shared reflection logic
+	FString ErrorMessage;
+	if (!SetPropertyFromJson(ComponentTemplate, PropertyPath, Value, ErrorMessage))
+	{
+		return FMCPToolResult::Error(ErrorMessage);
+	}
+
+	// Compile and finalize
+	if (auto CompileError = Context.CompileAndFinalize(TEXT("Component property set")))
+	{
+		return CompileError.GetValue();
+	}
+
+	TSharedPtr<FJsonObject> ResultData = Context.BuildResultJson();
+	ResultData->SetStringField(TEXT("component"), FoundComponentName);
+	ResultData->SetStringField(TEXT("property"), PropertyPath);
+
+	return FMCPToolResult::Success(
+		FString::Printf(TEXT("Set '%s' on component '%s'"), *PropertyPath, *FoundComponentName),
 		ResultData
 	);
 }

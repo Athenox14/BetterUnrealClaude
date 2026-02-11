@@ -692,6 +692,11 @@ FMCPToolResult FMCPTool_BehaviorTreeModify::HandleBatch(const TSharedRef<FJsonOb
 		return FMCPToolResult::Error(TEXT("'operations' array is required for batch mode"));
 	}
 
+	// Collect inheritable params from parent - sub-ops inherit these if not set
+	static const TArray<FString> InheritableKeys = {
+		TEXT("asset_path"), TEXT("blackboard_path"), TEXT("package_path")
+	};
+
 	TArray<TSharedPtr<FJsonValue>> ResultsArray;
 	int32 SuccessCount = 0;
 	int32 FailureCount = 0;
@@ -711,8 +716,16 @@ FMCPToolResult FMCPTool_BehaviorTreeModify::HandleBatch(const TSharedRef<FJsonOb
 			continue;
 		}
 
-		// Execute the sub-operation
+		// Inherit parent params into sub-operation if not already set
 		TSharedRef<FJsonObject> OpParams = (*OpObject).ToSharedRef();
+		for (const FString& Key : InheritableKeys)
+		{
+			if (!OpParams->HasField(Key) && Params->HasField(Key))
+			{
+				OpParams->SetStringField(Key, Params->GetStringField(Key));
+			}
+		}
+
 		FMCPToolResult SubResult = Execute(OpParams);
 
 		TSharedPtr<FJsonObject> SubResultJson = MakeShared<FJsonObject>();
