@@ -50,6 +50,52 @@ protected:
 	// ===== Parameter Extraction Helpers =====
 
 	/**
+	 * Get a JSON field as string regardless of its actual type (string, number, bool).
+	 * Useful for parameters like pin_value that may be sent as numbers by AI.
+	 */
+	/**
+	 * Convert a FJsonValue to string regardless of its actual type.
+	 */
+	static FString JsonValueToString(const TSharedPtr<FJsonValue>& Value)
+	{
+		if (!Value.IsValid()) return FString();
+
+		FString StrVal;
+		if (Value->TryGetString(StrVal))
+		{
+			return StrVal;
+		}
+		double NumVal;
+		if (Value->TryGetNumber(NumVal))
+		{
+			if (FMath::IsNearlyEqual(NumVal, FMath::RoundToDouble(NumVal)))
+			{
+				return FString::Printf(TEXT("%lld"), (int64)NumVal);
+			}
+			return FString::SanitizeFloat(NumVal);
+		}
+		bool BoolVal;
+		if (Value->TryGetBool(BoolVal))
+		{
+			return BoolVal ? TEXT("true") : TEXT("false");
+		}
+		return FString();
+	}
+
+	/**
+	 * Get a JSON field as string regardless of its actual type (string, number, bool).
+	 * Useful for parameters like pin_value that may be sent as numbers by AI.
+	 */
+	static FString GetJsonFieldAsString(const TSharedPtr<FJsonObject>& Obj, const FString& FieldName)
+	{
+		if (!Obj.IsValid() || !Obj->HasField(FieldName))
+		{
+			return FString();
+		}
+		return JsonValueToString(Obj->TryGetField(FieldName));
+	}
+
+	/**
 	 * Extract and validate a required string parameter
 	 * @param Params - The JSON parameters
 	 * @param ParamName - The parameter name to extract

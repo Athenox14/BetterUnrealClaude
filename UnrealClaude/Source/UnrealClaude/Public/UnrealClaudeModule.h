@@ -29,6 +29,9 @@ public:
 	/** Get MCP server port - reads from config.json, falls back to default constant */
 	static uint32 GetMCPServerPort();
 
+	/** Launch Claude CLI in a new cmd.exe window */
+	static void LaunchClaudeTerminal();
+
 private:
 	void RegisterMenus();
 	void UnregisterMenus();
@@ -36,6 +39,5 @@ private:
 	void StopMCPServer();
 
 	TSharedPtr<class FUICommandList> PluginCommands;
-	TSharedPtr<class SDockTab> ClaudeTab;
 	TSharedPtr<FUnrealClaudeMCPServer> MCPServer;
 };

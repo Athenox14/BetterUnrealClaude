@@ -588,8 +588,8 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteAddNode(const TSharedRef<FJsonOb
 		{
 			for (const auto& PinValue : (*PinValuesPtr)->Values)
 			{
-				FString PinValueStr;
-				if (PinValue.Value->TryGetString(PinValueStr))
+				FString PinValueStr = JsonValueToString(PinValue.Value);
+				if (!PinValueStr.IsEmpty())
 				{
 					FString PinError;
 					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
@@ -743,8 +743,8 @@ bool FMCPTool_BlueprintModify::CreateNodesFromSpec(
 		{
 			for (const auto& PinValue : (*PinValuesPtr)->Values)
 			{
-				FString PinValueStr;
-				if (PinValue.Value->TryGetString(PinValueStr))
+				FString PinValueStr = JsonValueToString(PinValue.Value);
+				if (!PinValueStr.IsEmpty())
 				{
 					FString PinError;
 					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
@@ -1018,10 +1018,11 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteSetPinValue(const TSharedRef<FJs
 		return Error.GetValue();
 	}
 
-	FString PinValue;
-	if (!ExtractRequiredString(Params, TEXT("pin_value"), PinValue, Error))
+	// pin_value may be sent as number/bool by AI, so use flexible extraction
+	FString PinValue = GetJsonFieldAsString(TSharedPtr<FJsonObject>(Params), TEXT("pin_value"));
+	if (PinValue.IsEmpty())
 	{
-		return Error.GetValue();
+		return FMCPToolResult::Error(TEXT("Missing required parameter: pin_value"));
 	}
 
 	FString GraphName = ExtractOptionalString(Params, TEXT("graph_name"), TEXT(""));
@@ -1148,7 +1149,7 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 		{
 			FString VarName = (*OpObj)->GetStringField(TEXT("variable_name"));
 			FString VarType = (*OpObj)->GetStringField(TEXT("variable_type"));
-			FString VarDefaultValue = (*OpObj)->GetStringField(TEXT("default_value"));
+			FString VarDefaultValue = GetJsonFieldAsString(*OpObj, TEXT("default_value"));
 			if (VarName.IsEmpty() || VarType.IsEmpty())
 			{
 				OpError = TEXT("variable_name and variable_type are required");
@@ -1321,8 +1322,8 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 					{
 						for (const auto& PinValue : (*PinValuesPtr)->Values)
 						{
-							FString PinValueStr;
-							if (PinValue.Value->TryGetString(PinValueStr))
+							FString PinValueStr = JsonValueToString(PinValue.Value);
+							if (!PinValueStr.IsEmpty())
 							{
 								FString PinError;
 								FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
@@ -1384,8 +1385,16 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 			{
 				FString NodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("node_id")), CreatedNodeIds);
 				FString PinName = (*OpObj)->GetStringField(TEXT("pin_name"));
-				FString PinValue = (*OpObj)->GetStringField(TEXT("pin_value"));
-				bOpSuccess = FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinName, PinValue, OpError);
+				// pin_value may be sent as number/bool by AI, so use flexible extraction
+				FString PinValue = GetJsonFieldAsString(*OpObj, TEXT("pin_value"));
+				if (PinValue.IsEmpty())
+				{
+					OpError = TEXT("pin_value is required");
+				}
+				else
+				{
+					bOpSuccess = FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinName, PinValue, OpError);
+				}
 			}
 		}
 		else

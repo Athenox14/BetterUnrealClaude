@@ -30,9 +30,7 @@ public class UnrealClaude : ModuleRules
 				"EditorStyle",
 				"UnrealEd",
 				"ToolMenus",
-				"Projects",
-				"EditorFramework",
-				"WorkspaceMenuStructure"
+				"Projects"
 			}
 		);
 			
@@ -43,8 +41,6 @@ public class UnrealClaude : ModuleRules
 				"JsonUtilities",
 				"HTTP",
 				"HTTPServer",
-				"Sockets",
-				"Networking",
 				"ImageWrapper",
 				// Blueprint manipulation
 				"Kismet",
@@ -63,9 +59,7 @@ public class UnrealClaude : ModuleRules
 				// Enhanced Input
 				"EnhancedInput",
 				// Navigation system (for NavMeshBoundsVolume etc.)
-				"NavigationSystem",
-				// Web browser for embedded terminal
-				"WebBrowser"
+				"NavigationSystem"
 			}
 		);
 

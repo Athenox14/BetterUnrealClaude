@@ -2,52 +2,56 @@
 
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeCommands.h"
-#include "SClaudeTerminalWidget.h"
 #include "ClaudeCodeRunner.h"
 #include "ClaudeSubsystem.h"
 #include "ScriptExecutionManager.h"
 #include "MCP/UnrealClaudeMCPServer.h"
 #include "ProjectContext.h"
 
-#include "Framework/Docking/TabManager.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "LevelEditor.h"
 #include "ToolMenus.h"
-#include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Notifications/SNotificationList.h"
-#include "WorkspaceMenuStructure.h"
-#include "WorkspaceMenuStructureModule.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HttpServerModule.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+
+#if PLATFORM_WINDOWS
+#include "Windows/WindowsHWrapper.h"
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <windows.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 DEFINE_LOG_CATEGORY(LogUnrealClaude);
 
 #define LOCTEXT_NAMESPACE "FUnrealClaudeModule"
 
-static const FName ClaudeTabName("ClaudeAssistant");
-
 void FUnrealClaudeModule::StartupModule()
 {
 	UE_LOG(LogUnrealClaude, Warning, TEXT("=== UnrealClaude BUILD 20260107-1450 THREAD_TESTS_DISABLED ==="));
-	
+
 	// Register commands
 	FUnrealClaudeCommands::Register();
-	
+
 	PluginCommands = MakeShareable(new FUICommandList);
-	
-	// Map commands to actions
+
+	// Map OpenClaudePanel -> launch Claude CLI in a new terminal window
 	PluginCommands->MapAction(
 		FUnrealClaudeCommands::Get().OpenClaudePanel,
 		FExecuteAction::CreateLambda([]()
 		{
-			FGlobalTabmanager::Get()->TryInvokeTab(ClaudeTabName);
+			FUnrealClaudeModule::LaunchClaudeTerminal();
 		}),
-		FCanExecuteAction()
+		FCanExecuteAction::CreateLambda([]()
+		{
+			return FClaudeCodeRunner::IsClaudeAvailable();
+		})
 	);
 
 	// Map QuickAsk command - shows a popup for quick questions
@@ -126,23 +130,6 @@ void FUnrealClaudeModule::StartupModule()
 		})
 	);
 
-	// Register the tab spawner
-	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
-		ClaudeTabName,
-		FOnSpawnTab::CreateLambda([](const FSpawnTabArgs& Args) -> TSharedRef<SDockTab>
-		{
-			return SNew(SDockTab)
-				.TabRole(ETabRole::NomadTab)
-				.Label(LOCTEXT("ClaudeTabTitle", "Claude Assistant"))
-				[
-					SNew(SClaudeTerminalWidget)
-				];
-		}))
-		.SetDisplayName(LOCTEXT("ClaudeTabTitle", "Claude Assistant"))
-		.SetTooltipText(LOCTEXT("ClaudeTabTooltip", "Open the Claude AI Assistant for UE5.7 development help"))
-		.SetGroup(WorkspaceMenu::GetMenuStructure().GetToolsCategory())
-		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help"));
-	
 	// Register menus after engine init
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FUnrealClaudeModule::RegisterMenus));
 
@@ -181,8 +168,6 @@ void FUnrealClaudeModule::ShutdownModule()
 	UToolMenus::UnregisterOwner(this);
 
 	FUnrealClaudeCommands::Unregister();
-
-	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(ClaudeTabName);
 }
 
 FUnrealClaudeModule& FUnrealClaudeModule::Get()
@@ -199,7 +184,7 @@ void FUnrealClaudeModule::RegisterMenus()
 {
 	// Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
 	FToolMenuOwnerScoped OwnerScoped(this);
-	
+
 	// Add to the main menu bar under Tools
 	{
 		UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Tools");
@@ -208,8 +193,8 @@ void FUnrealClaudeModule::RegisterMenus()
 		Section.AddMenuEntryWithCommandList(
 			FUnrealClaudeCommands::Get().OpenClaudePanel,
 			PluginCommands,
-			LOCTEXT("OpenClaudeMenuItem", "Claude Assistant"),
-			LOCTEXT("OpenClaudeMenuItemTooltip", "Open the Claude AI Assistant for UE5.7 help (Ctrl+Shift+C)"),
+			LOCTEXT("OpenClaudeMenuItem", "Claude Terminal"),
+			LOCTEXT("OpenClaudeMenuItemTooltip", "Open Claude CLI in a new terminal window (Ctrl+Shift+C)"),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help")
 		);
 
@@ -221,16 +206,16 @@ void FUnrealClaudeModule::RegisterMenus()
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help")
 		);
 	}
-	
+
 	// Add to the toolbar
 	{
 		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
 		FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("UnrealClaude");
-		
+
 		Section.AddEntry(FToolMenuEntry::InitToolBarButton(
 			FUnrealClaudeCommands::Get().OpenClaudePanel,
 			LOCTEXT("ClaudeToolbarButton", "Claude"),
-			LOCTEXT("ClaudeToolbarTooltip", "Open Claude Assistant (Ctrl+Shift+C)"),
+			LOCTEXT("ClaudeToolbarTooltip", "Open Claude Terminal (Ctrl+Shift+C)"),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Help")
 		));
 	}
@@ -240,6 +225,92 @@ void FUnrealClaudeModule::UnregisterMenus()
 {
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
+}
+
+// ========== Launch Claude Terminal ==========
+
+void FUnrealClaudeModule::LaunchClaudeTerminal()
+{
+#if PLATFORM_WINDOWS
+	FString ClaudePath = FClaudeCodeRunner::GetClaudePath();
+	if (ClaudePath.IsEmpty())
+	{
+		UE_LOG(LogUnrealClaude, Error, TEXT("Terminal: Claude CLI not found"));
+		return;
+	}
+
+	FString Args = TEXT("--verbose --dangerously-skip-permissions ");
+
+	// MCP config
+	FString PluginDir;
+	FString EnginePluginPath = FPaths::Combine(FPaths::EnginePluginsDir(), TEXT("UnrealClaude"));
+	FString ProjectPluginPath = FPaths::Combine(FPaths::ProjectPluginsDir(), TEXT("UnrealClaude"));
+	if (FPaths::DirectoryExists(EnginePluginPath))
+		PluginDir = EnginePluginPath;
+	else if (FPaths::DirectoryExists(ProjectPluginPath))
+		PluginDir = ProjectPluginPath;
+
+	if (!PluginDir.IsEmpty())
+	{
+		FString MCPBridgePath = FPaths::ConvertRelativePathToFull(
+			FPaths::Combine(PluginDir, TEXT("Resources"), TEXT("mcp-bridge"), TEXT("index.js")));
+
+		if (FPaths::FileExists(MCPBridgePath))
+		{
+			FString MCPConfigDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("UnrealClaude"));
+			IFileManager::Get().MakeDirectory(*MCPConfigDir, true);
+			FString MCPConfigPath = FPaths::Combine(MCPConfigDir, TEXT("mcp-config.json"));
+
+			FString MCPConfigContent = FString::Printf(
+				TEXT("{\n  \"mcpServers\": {\n    \"unrealclaude\": {\n      \"command\": \"node\",\n      \"args\": [\"%s\"],\n      \"env\": {\n        \"UNREAL_MCP_URL\": \"http://localhost:%d\"\n      }\n    }\n  }\n}"),
+				*MCPBridgePath.Replace(TEXT("\\"), TEXT("/")),
+				GetMCPServerPort()
+			);
+
+			FFileHelper::SaveStringToFile(MCPConfigContent, *MCPConfigPath);
+			FString EscapedConfigPath = MCPConfigPath.Replace(TEXT("\\"), TEXT("/"));
+			Args += FString::Printf(TEXT("--mcp-config \"%s\" "), *EscapedConfigPath);
+		}
+	}
+
+	Args += TEXT("--allowedTools \"mcp__unrealclaude__*\" ");
+
+	// cmd.exe /K keeps the prompt open if Claude exits
+	FString Command = FString::Printf(TEXT("cmd.exe /K \"\"%s\" %s\""), *ClaudePath, *Args);
+	FString WorkingDir = FPaths::ProjectDir();
+
+	STARTUPINFOW si;
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&pi, sizeof(pi));
+
+	BOOL bCreated = CreateProcessW(
+		NULL,
+		const_cast<LPWSTR>(*Command),
+		NULL, NULL,
+		0,
+		CREATE_NEW_CONSOLE,
+		NULL,
+		*WorkingDir,
+		&si, &pi
+	);
+
+	if (bCreated)
+	{
+		UE_LOG(LogUnrealClaude, Log, TEXT("Terminal: Launched Claude CLI (PID: %d)"), pi.dwProcessId);
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+	}
+	else
+	{
+		DWORD err = GetLastError();
+		UE_LOG(LogUnrealClaude, Error, TEXT("Terminal: CreateProcess failed (%d)"), err);
+	}
+#else
+	UE_LOG(LogUnrealClaude, Warning, TEXT("Terminal: Only supported on Windows"));
+#endif
 }
 
 uint32 FUnrealClaudeModule::GetMCPServerPort()
