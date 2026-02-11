@@ -30,6 +30,8 @@
 #include "Tools/MCPTool_Material.h"
 #include "Tools/MCPTool_Asset.h"
 #include "Tools/MCPTool_OpenLevel.h"
+#include "Tools/MCPTool_SearchNodes.h"
+#include "Tools/MCPTool_BehaviorTreeModify.h"
 
 // Task queue tools
 #include "Tools/MCPTool_TaskSubmit.h"
@@ -110,6 +112,10 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 
 	// Level management tools
 	RegisterTool(MakeShared<FMCPTool_OpenLevel>());
+
+	// Node search and Behavior Tree tools
+	RegisterTool(MakeShared<FMCPTool_SearchNodes>());
+	RegisterTool(MakeShared<FMCPTool_BehaviorTreeModify>());
 
 	// Create and register async task queue tools
 	// Task queue takes a raw pointer since the registry always outlives it

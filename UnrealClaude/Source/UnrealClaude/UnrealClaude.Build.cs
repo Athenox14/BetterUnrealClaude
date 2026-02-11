@@ -54,6 +54,8 @@ public class UnrealClaude : ModuleRules
 				"AnimGraphRuntime",
 				// AI module (for UAIBlueprintHelperLibrary in CallFunction resolution)
 				"AIModule",
+				// Behavior Tree / gameplay tasks
+				"GameplayTasks",
 				// Asset saving
 				"EditorScriptingUtilities",
 				// Enhanced Input
