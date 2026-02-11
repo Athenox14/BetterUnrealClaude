@@ -1042,37 +1042,19 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 
 	Selector->SelectedKeyName = FName(*KeyName);
 
-	// Resolve the SelectedKeyID from the Blackboard asset so the node is actually valid at runtime
+	// Let InitializeFromAsset resolve SelectedKeyID and internal references from the BB asset
 	UBlackboardData* BB = BehaviorTree->BlackboardAsset;
 	if (BB)
 	{
-		// Search through all keys (including parent blackboard keys)
+		// Verify the key actually exists in the blackboard (including parents)
 		bool bKeyFound = false;
 		const UBlackboardData* CurrentBB = BB;
 		while (CurrentBB)
 		{
-			for (int32 KeyIdx = 0; KeyIdx < CurrentBB->Keys.Num(); KeyIdx++)
+			for (const FBlackboardEntry& Entry : CurrentBB->Keys)
 			{
-				if (CurrentBB->Keys[KeyIdx].EntryName.ToString().Equals(KeyName, ESearchCase::IgnoreCase))
+				if (Entry.EntryName.ToString().Equals(KeyName, ESearchCase::IgnoreCase))
 				{
-					// Calculate absolute key ID (parent keys come first)
-					int32 AbsoluteKeyID = KeyIdx;
-					const UBlackboardData* ParentBB = CurrentBB->Parent;
-					while (ParentBB)
-					{
-						AbsoluteKeyID += ParentBB->Keys.Num();
-						ParentBB = ParentBB->Parent;
-					}
-
-					Selector->SelectedKeyID = static_cast<uint8>(AbsoluteKeyID);
-
-					// Also set the allowed key type if the selector has type filters
-					if (CurrentBB->Keys[KeyIdx].KeyType)
-					{
-						Selector->AllowedTypes.Empty();
-						Selector->AllowedTypes.Add(CurrentBB->Keys[KeyIdx].KeyType->GetClass());
-					}
-
 					bKeyFound = true;
 					break;
 				}
@@ -1083,21 +1065,21 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 
 		if (!bKeyFound)
 		{
-			UE_LOG(LogUnrealClaude, Warning, TEXT("Blackboard key '%s' not found in BB '%s'. SelectedKeyName set but SelectedKeyID will be invalid."),
+			UE_LOG(LogUnrealClaude, Warning, TEXT("Blackboard key '%s' not found in BB '%s'. SelectedKeyName set but resolution may fail."),
 				*KeyName, *BB->GetName());
 		}
 
-		// Call InitializeFromAsset on the node to let it resolve internal references
+		// InitializeFromAsset resolves SelectedKeyID from SelectedKeyName internally
 		Node->InitializeFromAsset(*BehaviorTree);
 	}
 	else
 	{
-		UE_LOG(LogUnrealClaude, Warning, TEXT("No Blackboard asset on BT - SelectedKeyName set but SelectedKeyID cannot be resolved"));
+		UE_LOG(LogUnrealClaude, Warning, TEXT("No Blackboard asset on BT - SelectedKeyName set but key ID cannot be resolved"));
 	}
 
 	BehaviorTree->MarkPackageDirty();
-	UE_LOG(LogUnrealClaude, Log, TEXT("Set BlackboardKeySelector '%s' to key '%s' (KeyID: %d)"),
-		*PropertyName, *KeyName, Selector->SelectedKeyID);
+	UE_LOG(LogUnrealClaude, Log, TEXT("Set BlackboardKeySelector '%s' to key '%s'"),
+		*PropertyName, *KeyName);
 	return true;
 }
 
