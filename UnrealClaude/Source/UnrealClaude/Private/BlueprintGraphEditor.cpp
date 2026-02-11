@@ -13,6 +13,13 @@
 #include "EdGraphSchema_K2.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetStringLibrary.h"
+#include "Kismet/KismetArrayLibrary.h"
+#include "Kismet/KismetTextLibrary.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "Blueprint/AIBlueprintHelperLibrary.h"
+#include "UObject/UObjectIterator.h"
 #include "HAL/PlatformAtomics.h"
 
 // Static member initialization
@@ -639,51 +646,162 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 		return nullptr;
 	}
 
-	// Find the function
+	// Support "Class::Function" format
+	FString ActualFunctionName = FunctionName;
+	FString ActualTargetClass = TargetClass;
+	if (FunctionName.Contains(TEXT("::")))
+	{
+		FString Left, Right;
+		FunctionName.Split(TEXT("::"), &Left, &Right);
+		if (!Left.IsEmpty() && !Right.IsEmpty())
+		{
+			ActualTargetClass = Left;
+			ActualFunctionName = Right;
+		}
+	}
+
 	UFunction* Function = nullptr;
 	UClass* FunctionOwner = nullptr;
+	TArray<FString> SearchedClasses;
 
-	// Try to find class by name
-	if (!TargetClass.IsEmpty())
+	// Helper lambda: try FindFunctionByName with K2_ prefix fallback
+	auto TryFindFunction = [&ActualFunctionName](UClass* InClass) -> UFunction*
 	{
-		FunctionOwner = FindObject<UClass>(nullptr, *TargetClass);
+		if (!InClass) return nullptr;
+		UFunction* Found = InClass->FindFunctionByName(FName(*ActualFunctionName));
+		if (!Found)
+		{
+			// Try K2_ prefix (e.g. MoveToActor -> K2_MoveToActor)
+			FString K2Name = FString::Printf(TEXT("K2_%s"), *ActualFunctionName);
+			Found = InClass->FindFunctionByName(FName(*K2Name));
+		}
+		return Found;
+	};
+
+	// === Step 1: Resolve target class if specified ===
+	if (!ActualTargetClass.IsEmpty())
+	{
+		// 1a) Direct FindObject
+		FunctionOwner = FindObject<UClass>(nullptr, *ActualTargetClass);
+
+		// 1b) Try with U prefix (e.g. "GameplayStatics" -> "UGameplayStatics")
 		if (!FunctionOwner)
 		{
-			// Try common library classes
-			if (TargetClass.Equals(TEXT("KismetSystemLibrary"), ESearchCase::IgnoreCase))
+			FString WithU = FString::Printf(TEXT("U%s"), *ActualTargetClass);
+			FunctionOwner = FindObject<UClass>(nullptr, *WithU);
+		}
+
+		// 1c) LoadClass with common /Script/ module paths (pattern from BlueprintLoader::FindParentClass)
+		if (!FunctionOwner)
+		{
+			static const TCHAR* ScriptModules[] = {
+				TEXT("/Script/Engine"),
+				TEXT("/Script/CoreUObject"),
+				TEXT("/Script/AIModule"),
+				TEXT("/Script/NavigationSystem"),
+				TEXT("/Script/GameplayTasks"),
+				TEXT("/Script/UMG"),
+				TEXT("/Script/EnhancedInput"),
+			};
+
+			for (const TCHAR* Module : ScriptModules)
 			{
-				FunctionOwner = UKismetSystemLibrary::StaticClass();
+				if (FunctionOwner) break;
+
+				FString Path = FString::Printf(TEXT("%s.%s"), Module, *ActualTargetClass);
+				FunctionOwner = LoadClass<UObject>(nullptr, *Path);
+
+				if (!FunctionOwner)
+				{
+					Path = FString::Printf(TEXT("%s.U%s"), Module, *ActualTargetClass);
+					FunctionOwner = LoadClass<UObject>(nullptr, *Path);
+				}
 			}
-			else if (TargetClass.Equals(TEXT("KismetMathLibrary"), ESearchCase::IgnoreCase))
+		}
+
+		// 1d) Well-known classes by short name (case insensitive)
+		if (!FunctionOwner)
+		{
+			struct FKnownClass { const TCHAR* Name; UClass* (*GetClass)(); };
+			static const FKnownClass KnownClasses[] = {
+				{ TEXT("KismetSystemLibrary"),      []() -> UClass* { return UKismetSystemLibrary::StaticClass(); } },
+				{ TEXT("KismetMathLibrary"),         []() -> UClass* { return UKismetMathLibrary::StaticClass(); } },
+				{ TEXT("GameplayStatics"),           []() -> UClass* { return UGameplayStatics::StaticClass(); } },
+				{ TEXT("KismetStringLibrary"),       []() -> UClass* { return UKismetStringLibrary::StaticClass(); } },
+				{ TEXT("KismetArrayLibrary"),        []() -> UClass* { return UKismetArrayLibrary::StaticClass(); } },
+				{ TEXT("KismetTextLibrary"),         []() -> UClass* { return UKismetTextLibrary::StaticClass(); } },
+				{ TEXT("AIBlueprintHelperLibrary"),  []() -> UClass* { return UAIBlueprintHelperLibrary::StaticClass(); } },
+			};
+
+			for (const FKnownClass& Known : KnownClasses)
 			{
-				FunctionOwner = UKismetMathLibrary::StaticClass();
+				if (ActualTargetClass.Equals(Known.Name, ESearchCase::IgnoreCase))
+				{
+					FunctionOwner = Known.GetClass();
+					break;
+				}
+			}
+		}
+
+		// Try to find the function in the resolved class
+		if (FunctionOwner)
+		{
+			SearchedClasses.Add(FunctionOwner->GetName());
+			Function = TryFindFunction(FunctionOwner);
+		}
+	}
+
+	// === Step 2: Search common function libraries as fallback ===
+	if (!Function)
+	{
+		struct FLibraryEntry { UClass* Class; const TCHAR* Name; };
+		const FLibraryEntry CommonLibraries[] = {
+			{ UKismetSystemLibrary::StaticClass(),      TEXT("UKismetSystemLibrary") },
+			{ UKismetMathLibrary::StaticClass(),        TEXT("UKismetMathLibrary") },
+			{ UGameplayStatics::StaticClass(),          TEXT("UGameplayStatics") },
+			{ UKismetStringLibrary::StaticClass(),      TEXT("UKismetStringLibrary") },
+			{ UKismetArrayLibrary::StaticClass(),       TEXT("UKismetArrayLibrary") },
+			{ UKismetTextLibrary::StaticClass(),        TEXT("UKismetTextLibrary") },
+			{ UAIBlueprintHelperLibrary::StaticClass(), TEXT("UAIBlueprintHelperLibrary") },
+		};
+
+		for (const FLibraryEntry& Entry : CommonLibraries)
+		{
+			if (!SearchedClasses.Contains(Entry.Name))
+			{
+				SearchedClasses.Add(Entry.Name);
+				Function = TryFindFunction(Entry.Class);
+				if (Function) break;
 			}
 		}
 	}
-	else
-	{
-		// Default to KismetSystemLibrary for common functions
-		FunctionOwner = UKismetSystemLibrary::StaticClass();
-	}
 
-	if (FunctionOwner)
-	{
-		Function = FunctionOwner->FindFunctionByName(FName(*FunctionName));
-	}
-
-	// If not found in specified class, search common libraries
+	// === Step 3: Global search across all UBlueprintFunctionLibrary subclasses ===
 	if (!Function)
 	{
-		Function = UKismetSystemLibrary::StaticClass()->FindFunctionByName(FName(*FunctionName));
-	}
-	if (!Function)
-	{
-		Function = UKismetMathLibrary::StaticClass()->FindFunctionByName(FName(*FunctionName));
+		for (TObjectIterator<UClass> It; It; ++It)
+		{
+			UClass* TestClass = *It;
+			if (TestClass->IsChildOf(UBlueprintFunctionLibrary::StaticClass())
+				&& TestClass != UBlueprintFunctionLibrary::StaticClass())
+			{
+				UFunction* Found = TryFindFunction(TestClass);
+				if (Found)
+				{
+					Function = Found;
+					UE_LOG(LogUnrealClaude, Log, TEXT("Found function '%s' via global search in class '%s'"),
+						*ActualFunctionName, *TestClass->GetName());
+					break;
+				}
+			}
+		}
 	}
 
 	if (!Function)
 	{
-		OutError = FString::Printf(TEXT("Function '%s' not found"), *FunctionName);
+		OutError = FString::Printf(
+			TEXT("Function '%s' not found. Searched in: [%s]. Also scanned all BlueprintFunctionLibrary subclasses."),
+			*ActualFunctionName, *FString::Join(SearchedClasses, TEXT(", ")));
 		return nullptr;
 	}
 

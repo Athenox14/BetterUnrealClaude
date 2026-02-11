@@ -18,6 +18,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 
 // Dynamic context loader for UE 5.7 API documentation
 import {
@@ -39,9 +42,26 @@ import {
   convertAnnotations,
 } from "./lib.js";
 
+// Read port from plugin config.json (shared with C++ side)
+function getConfigPort() {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    // config.json is at plugin root: ../../config.json relative to Resources/mcp-bridge/
+    const configPath = resolve(__dirname, "..", "..", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (config.server_port && Number.isInteger(config.server_port) && config.server_port > 0 && config.server_port <= 65535) {
+      return config.server_port;
+    }
+  } catch {
+    // config.json not found or invalid, use default
+  }
+  return 3000;
+}
+
 // Configuration with defaults
 const CONFIG = {
-  unrealMcpUrl: process.env.UNREAL_MCP_URL || "http://localhost:3000",
+  unrealMcpUrl: process.env.UNREAL_MCP_URL || `http://localhost:${getConfigPort()}`,
   requestTimeoutMs: parseInt(process.env.MCP_REQUEST_TIMEOUT_MS, 10) || 30000,
   injectContext: process.env.INJECT_CONTEXT === "true",
   asyncEnabled: process.env.MCP_ASYNC_ENABLED !== "false",

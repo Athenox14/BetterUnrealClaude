@@ -26,8 +26,8 @@ public:
 	/** Get the MCP server instance */
 	TSharedPtr<FUnrealClaudeMCPServer> GetMCPServer() const { return MCPServer; }
 
-	/** Get MCP server port - uses centralized constant */
-	static constexpr uint32 GetMCPServerPort() { return UnrealClaudeConstants::MCPServer::DefaultPort; }
+	/** Get MCP server port - reads from config.json, falls back to default constant */
+	static uint32 GetMCPServerPort();
 
 private:
 	void RegisterMenus();

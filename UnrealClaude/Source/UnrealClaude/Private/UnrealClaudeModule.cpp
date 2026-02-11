@@ -20,6 +20,10 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HttpServerModule.h"
+#include "Misc/FileHelper.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 DEFINE_LOG_CATEGORY(LogUnrealClaude);
 
@@ -236,6 +240,44 @@ void FUnrealClaudeModule::UnregisterMenus()
 {
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
+}
+
+uint32 FUnrealClaudeModule::GetMCPServerPort()
+{
+	static uint32 CachedPort = 0;
+	if (CachedPort > 0)
+	{
+		return CachedPort;
+	}
+
+	// Try to read port from config.json at the plugin root
+	FString ConfigPath = FPaths::Combine(
+		FPaths::ProjectPluginsDir(), TEXT("UnrealClaude"), TEXT("config.json"));
+
+	FString JsonString;
+	if (FFileHelper::LoadFileToString(JsonString, *ConfigPath))
+	{
+		TSharedPtr<FJsonObject> JsonObject;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+		if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+		{
+			double PortValue = 0;
+			if (JsonObject->TryGetNumberField(TEXT("server_port"), PortValue))
+			{
+				int32 Port = static_cast<int32>(PortValue);
+				if (Port > 0 && Port <= 65535)
+				{
+					CachedPort = static_cast<uint32>(Port);
+					UE_LOG(LogUnrealClaude, Log, TEXT("MCP server port %d read from config.json"), CachedPort);
+					return CachedPort;
+				}
+			}
+		}
+		UE_LOG(LogUnrealClaude, Warning, TEXT("config.json found at '%s' but server_port invalid, using default"), *ConfigPath);
+	}
+
+	CachedPort = UnrealClaudeConstants::MCPServer::DefaultPort;
+	return CachedPort;
 }
 
 void FUnrealClaudeModule::StartMCPServer()

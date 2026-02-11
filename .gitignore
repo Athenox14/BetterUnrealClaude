@@ -1,7 +1,8 @@
 # Unreal Engine Plugin .gitignore
 
-# Build outputs (but NOT plugin Binaries - those are needed for distribution)
+# Build outputs
 PackagedPlugin/
+Binaries/
 Intermediate/
 DerivedDataCache/
 Build/
