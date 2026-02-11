@@ -1203,7 +1203,7 @@ void SClaudeEditorWidget::ParseAndRenderCodeBlocks()
 			SegmentText = Block->GetText().ToString();
 		}
 
-		if (!SegmentText.Contains(TEXT("```")))
+		if (SegmentText.IsEmpty())
 		{
 			continue;
 		}
@@ -1211,11 +1211,6 @@ void SClaudeEditorWidget::ParseAndRenderCodeBlocks()
 		// Parse into code and plain text sections
 		TArray<TPair<FString, bool>> Sections;
 		ParseCodeFences(SegmentText, Sections);
-
-		if (Sections.Num() <= 1)
-		{
-			continue;
-		}
 
 		// Replace container contents with parsed sections
 		Container->ClearChildren();
@@ -1244,18 +1239,206 @@ void SClaudeEditorWidget::ParseAndRenderCodeBlocks()
 			}
 			else
 			{
-				// Plain text
-				Container->AddSlot()
-				.AutoHeight()
+				// Plain text with markdown rendering
+				RenderMarkdownSection(Container, Section.Key);
+			}
+		}
+	}
+}
+
+FString SClaudeEditorWidget::StripInlineMarkdown(const FString& Text)
+{
+	FString Result = Text;
+	Result = Result.Replace(TEXT("**"), TEXT(""));
+	Result = Result.Replace(TEXT("`"), TEXT(""));
+	return Result;
+}
+
+void SClaudeEditorWidget::RenderMarkdownSection(TSharedPtr<SVerticalBox> Container, const FString& Text)
+{
+	TArray<FString> Lines;
+	Text.ParseIntoArrayLines(Lines);
+
+	for (const FString& RawLine : Lines)
+	{
+		FString Line = RawLine;
+
+		// Skip fully empty lines - add small spacer
+		if (Line.TrimStartAndEnd().IsEmpty())
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			[
+				SNew(SBox)
+				.HeightOverride(4.0f)
+			];
+			continue;
+		}
+
+		// --- Horizontal rule ---
+		FString Trimmed = Line.TrimStartAndEnd();
+		if ((Trimmed.Len() >= 3) &&
+			(Trimmed == FString::ChrN(Trimmed.Len(), TEXT('-')) ||
+			 Trimmed == FString::ChrN(Trimmed.Len(), TEXT('*')) ||
+			 Trimmed == FString::ChrN(Trimmed.Len(), TEXT('_'))))
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(0, 6, 0, 6)
+			[
+				SNew(SSeparator)
+				.Thickness(1.0f)
+				.ColorAndOpacity(FLinearColor(0.3f, 0.3f, 0.4f, 0.6f))
+			];
+			continue;
+		}
+
+		// --- Headers (check longest prefix first) ---
+		if (Trimmed.StartsWith(TEXT("#### ")))
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(0, 4, 0, 2)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(StripInlineMarkdown(Trimmed.RightChop(5))))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+				.ColorAndOpacity(FSlateColor(FLinearColor(0.85f, 0.88f, 0.95f)))
+				.AutoWrapText(true)
+			];
+			continue;
+		}
+		if (Trimmed.StartsWith(TEXT("### ")))
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(0, 5, 0, 3)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(StripInlineMarkdown(Trimmed.RightChop(4))))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+				.ColorAndOpacity(FSlateColor(FLinearColor(0.88f, 0.90f, 0.97f)))
+				.AutoWrapText(true)
+			];
+			continue;
+		}
+		if (Trimmed.StartsWith(TEXT("## ")))
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(0, 8, 0, 4)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(StripInlineMarkdown(Trimmed.RightChop(3))))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+				.ColorAndOpacity(FSlateColor(FLinearColor(0.92f, 0.94f, 1.0f)))
+				.AutoWrapText(true)
+			];
+			continue;
+		}
+		if (Trimmed.StartsWith(TEXT("# ")))
+		{
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(0, 10, 0, 5)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(StripInlineMarkdown(Trimmed.RightChop(2))))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 16))
+				.ColorAndOpacity(FSlateColor(FLinearColor::White))
+				.AutoWrapText(true)
+			];
+			continue;
+		}
+
+		// --- Bullet lists (- item or * item, but not **bold**) ---
+		if (Trimmed.StartsWith(TEXT("- ")) || (Trimmed.StartsWith(TEXT("* ")) && !Trimmed.StartsWith(TEXT("**"))))
+		{
+			FString ItemText = Trimmed.RightChop(2);
+			Container->AddSlot()
+			.AutoHeight()
+			.Padding(12, 1, 0, 1)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0, 0, 6, 0)
 				[
 					SNew(STextBlock)
-					.Text(FText::FromString(Section.Key))
+					.Text(FText::FromString(TEXT("\u2022")))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+					.ColorAndOpacity(FSlateColor(FLinearColor(0.5f, 0.6f, 0.9f)))
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(StripInlineMarkdown(ItemText)))
 					.TextStyle(FAppStyle::Get(), "NormalText")
 					.ColorAndOpacity(FSlateColor(FLinearColor::White))
 					.AutoWrapText(true)
-				];
+				]
+			];
+			continue;
+		}
+
+		// --- Numbered lists (1. item, 2. item, etc.) ---
+		{
+			int32 DotSpacePos = Trimmed.Find(TEXT(". "));
+			if (DotSpacePos != INDEX_NONE && DotSpacePos <= 3 && DotSpacePos > 0)
+			{
+				FString NumberPart = Trimmed.Left(DotSpacePos);
+				bool bIsNumbered = true;
+				for (int32 c = 0; c < NumberPart.Len(); c++)
+				{
+					if (!FChar::IsDigit(NumberPart[c]))
+					{
+						bIsNumbered = false;
+						break;
+					}
+				}
+				if (bIsNumbered)
+				{
+					FString ItemText = Trimmed.Mid(DotSpacePos + 2);
+					Container->AddSlot()
+					.AutoHeight()
+					.Padding(12, 1, 0, 1)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(NumberPart + TEXT(".")))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+							.ColorAndOpacity(FSlateColor(FLinearColor(0.5f, 0.6f, 0.9f)))
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(StripInlineMarkdown(ItemText)))
+							.TextStyle(FAppStyle::Get(), "NormalText")
+							.ColorAndOpacity(FSlateColor(FLinearColor::White))
+							.AutoWrapText(true)
+						]
+					];
+					continue;
+				}
 			}
 		}
+
+		// --- Regular text (strip inline markers for clean display) ---
+		Container->AddSlot()
+		.AutoHeight()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(StripInlineMarkdown(Trimmed)))
+			.TextStyle(FAppStyle::Get(), "NormalText")
+			.ColorAndOpacity(FSlateColor(FLinearColor::White))
+			.AutoWrapText(true)
+		];
 	}
 }
 

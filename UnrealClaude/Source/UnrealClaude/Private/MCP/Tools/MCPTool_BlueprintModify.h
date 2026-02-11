@@ -25,6 +25,9 @@
  *   - disconnect_pins: Disconnect two pins
  *   - set_pin_value: Set default value for an input pin
  *
+ * Meta Operations:
+ *   - batch: Execute multiple operations in a single call (1 load, 1 compile)
+ *
  * All modification operations auto-compile the Blueprint after changes.
  */
 class FMCPTool_BlueprintModify : public FMCPToolBase
@@ -38,8 +41,11 @@ public:
 			"Create and modify Blueprints programmatically. Auto-compiles after changes.\n\n"
 			"Complexity Levels:\n"
 			"Level 2 (Structure): 'create', 'add_variable', 'remove_variable', 'add_function', 'remove_function'\n"
-			"Level 3 (Nodes): 'add_node', 'add_nodes' (batch), 'delete_node'\n"
-			"Level 4 (Wiring): 'connect_pins', 'disconnect_pins', 'set_pin_value'\n\n"
+			"Level 3 (Nodes): 'add_node', 'add_nodes' (batch nodes), 'delete_node'\n"
+			"Level 4 (Wiring): 'connect_pins', 'disconnect_pins', 'set_pin_value'\n"
+			"Meta: 'batch' - execute multiple operations in one call (1 load, 1 compile)\n\n"
+			"Batch: Use 'operations' array with {op, ...params}. Reference created nodes with '#N' (0-based index).\n"
+			"Example: [{op:'add_node',...},{op:'connect_pins', source_node_id:'#0', ...}]\n\n"
 			"Workflow: Use blueprint_query first to understand existing structure, then modify.\n\n"
 			"Node types: CallFunction, Branch, Event, VariableGet, VariableSet, Sequence, "
 			"PrintString, Add, Subtract, Multiply, Divide\n\n"
@@ -111,7 +117,11 @@ public:
 			FMCPToolParameter(TEXT("pin_name"), TEXT("string"),
 				TEXT("Pin name to set value"), false),
 			FMCPToolParameter(TEXT("pin_value"), TEXT("string"),
-				TEXT("Default value to set"), false)
+				TEXT("Default value to set"), false),
+
+			// For batch operation
+			FMCPToolParameter(TEXT("operations"), TEXT("array"),
+				TEXT("Array of operations for batch mode: [{op, ...params}]. Use '#N' to reference node IDs created by earlier operations (0-based index)."), false)
 		};
 		Info.Annotations = FMCPToolAnnotations::Modifying();
 		return Info;
@@ -137,8 +147,14 @@ private:
 	FMCPToolResult ExecuteDisconnectPins(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteSetPinValue(const TSharedRef<FJsonObject>& Params);
 
+	// Meta Operations
+	FMCPToolResult ExecuteBatch(const TSharedRef<FJsonObject>& Params);
+
 	// Helpers
 	EBlueprintType ParseBlueprintType(const FString& TypeString);
+
+	/** Resolve '#N' node references to actual node IDs from batch results */
+	static FString ResolveNodeRef(const FString& Ref, const TMap<int32, FString>& CreatedNodeIds);
 
 	// ExecuteAddNodes helper functions (reduces function complexity)
 	bool CreateNodesFromSpec(

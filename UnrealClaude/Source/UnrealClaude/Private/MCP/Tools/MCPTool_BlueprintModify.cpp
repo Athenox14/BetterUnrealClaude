@@ -21,6 +21,7 @@ namespace BlueprintModifyOps
 	static const FString ConnectPins = TEXT("connect_pins");
 	static const FString DisconnectPins = TEXT("disconnect_pins");
 	static const FString SetPinValue = TEXT("set_pin_value");
+	static const FString Batch = TEXT("batch");
 }
 
 FMCPToolResult FMCPTool_BlueprintModify::Execute(const TSharedRef<FJsonObject>& Params)
@@ -83,8 +84,13 @@ FMCPToolResult FMCPTool_BlueprintModify::Execute(const TSharedRef<FJsonObject>& 
 		return ExecuteSetPinValue(Params);
 	}
 
+	if (Operation == BlueprintModifyOps::Batch)
+	{
+		return ExecuteBatch(Params);
+	}
+
 	return FMCPToolResult::Error(FString::Printf(
-		TEXT("Unknown operation: '%s'. Valid: create, add_variable, remove_variable, add_function, remove_function, add_node, add_nodes, delete_node, connect_pins, disconnect_pins, set_pin_value"),
+		TEXT("Unknown operation: '%s'. Valid: create, add_variable, remove_variable, add_function, remove_function, add_node, add_nodes, delete_node, connect_pins, disconnect_pins, set_pin_value, batch"),
 		*Operation));
 }
 
@@ -913,4 +919,298 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteSetPinValue(const TSharedRef<FJs
 		FString::Printf(TEXT("Set '%s.%s' = '%s'"), *NodeId, *PinName, *PinValue),
 		ResultData
 	);
+}
+
+// ===== Meta Operations =====
+
+FString FMCPTool_BlueprintModify::ResolveNodeRef(const FString& Ref, const TMap<int32, FString>& CreatedNodeIds)
+{
+	if (Ref.StartsWith(TEXT("#")))
+	{
+		FString IndexStr = Ref.Mid(1);
+		if (IndexStr.IsNumeric())
+		{
+			int32 Index = FCString::Atoi(*IndexStr);
+			if (const FString* FoundId = CreatedNodeIds.Find(Index))
+			{
+				return *FoundId;
+			}
+		}
+	}
+	return Ref;
+}
+
+FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObject>& Params)
+{
+	// Get operations array
+	const TArray<TSharedPtr<FJsonValue>>* OperationsArray;
+	if (!Params->TryGetArrayField(TEXT("operations"), OperationsArray))
+	{
+		return FMCPToolResult::Error(TEXT("'operations' array is required for batch mode"));
+	}
+
+	if (OperationsArray->Num() == 0)
+	{
+		return FMCPToolResult::Error(TEXT("'operations' array is empty"));
+	}
+
+	// Load and validate Blueprint once
+	FMCPBlueprintLoadContext Context;
+	if (auto LoadError = Context.LoadAndValidate(Params))
+	{
+		return LoadError.GetValue();
+	}
+
+	// Find graph once (top-level, used for node/connection operations)
+	FString GraphName = ExtractOptionalString(Params, TEXT("graph_name"), TEXT(""));
+	bool bFunctionGraph = ExtractOptionalBool(Params, TEXT("is_function_graph"), false);
+	FString GraphError;
+	UEdGraph* Graph = FBlueprintUtils::FindGraph(Context.Blueprint, GraphName, bFunctionGraph, GraphError);
+	// Graph can be null (e.g. only variable/function ops) - we'll error per-op if needed
+
+	// Track created node IDs for #N references
+	TMap<int32, FString> CreatedNodeIds;
+
+	// Results
+	TArray<TSharedPtr<FJsonValue>> ResultsArray;
+	int32 SuccessCount = 0;
+	int32 FailureCount = 0;
+
+	for (int32 i = 0; i < OperationsArray->Num(); i++)
+	{
+		TSharedPtr<FJsonObject> OpResult = MakeShared<FJsonObject>();
+		OpResult->SetNumberField(TEXT("index"), i);
+
+		const TSharedPtr<FJsonObject>* OpObj;
+		if (!(*OperationsArray)[i]->TryGetObject(OpObj) || !OpObj->IsValid())
+		{
+			OpResult->SetStringField(TEXT("op"), TEXT("unknown"));
+			OpResult->SetBoolField(TEXT("success"), false);
+			OpResult->SetStringField(TEXT("error"), TEXT("Invalid operation format"));
+			ResultsArray.Add(MakeShared<FJsonValueObject>(OpResult));
+			FailureCount++;
+			continue;
+		}
+
+		FString Op = (*OpObj)->GetStringField(TEXT("op")).ToLower();
+		OpResult->SetStringField(TEXT("op"), Op);
+
+		FString OpError;
+		bool bOpSuccess = false;
+
+		if (Op == BlueprintModifyOps::AddVariable)
+		{
+			FString VarName = (*OpObj)->GetStringField(TEXT("variable_name"));
+			FString VarType = (*OpObj)->GetStringField(TEXT("variable_type"));
+			if (VarName.IsEmpty() || VarType.IsEmpty())
+			{
+				OpError = TEXT("variable_name and variable_type are required");
+			}
+			else
+			{
+				FEdGraphPinType PinType;
+				if (!FBlueprintUtils::ParsePinType(VarType, PinType, OpError))
+				{
+					// OpError already set
+				}
+				else
+				{
+					bOpSuccess = FBlueprintUtils::AddVariable(Context.Blueprint, VarName, PinType, OpError);
+				}
+			}
+		}
+		else if (Op == BlueprintModifyOps::RemoveVariable)
+		{
+			FString VarName = (*OpObj)->GetStringField(TEXT("variable_name"));
+			if (VarName.IsEmpty())
+			{
+				OpError = TEXT("variable_name is required");
+			}
+			else
+			{
+				bOpSuccess = FBlueprintUtils::RemoveVariable(Context.Blueprint, VarName, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::AddFunction)
+		{
+			FString FuncName = (*OpObj)->GetStringField(TEXT("function_name"));
+			if (FuncName.IsEmpty())
+			{
+				OpError = TEXT("function_name is required");
+			}
+			else
+			{
+				bOpSuccess = FBlueprintUtils::AddFunction(Context.Blueprint, FuncName, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::RemoveFunction)
+		{
+			FString FuncName = (*OpObj)->GetStringField(TEXT("function_name"));
+			if (FuncName.IsEmpty())
+			{
+				OpError = TEXT("function_name is required");
+			}
+			else
+			{
+				bOpSuccess = FBlueprintUtils::RemoveFunction(Context.Blueprint, FuncName, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::AddNode)
+		{
+			if (!Graph)
+			{
+				OpError = GraphError.IsEmpty() ? TEXT("No valid graph found") : GraphError;
+			}
+			else
+			{
+				FString NodeType = (*OpObj)->GetStringField(TEXT("node_type"));
+				int32 PosX = (int32)(*OpObj)->GetNumberField(TEXT("pos_x"));
+				int32 PosY = (int32)(*OpObj)->GetNumberField(TEXT("pos_y"));
+
+				// Get node params (nested object or inline fields)
+				TSharedPtr<FJsonObject> NodeParams = MakeShared<FJsonObject>();
+				const TSharedPtr<FJsonObject>* ParamsPtr;
+				if ((*OpObj)->TryGetObjectField(TEXT("node_params"), ParamsPtr))
+				{
+					NodeParams = *ParamsPtr;
+				}
+				else
+				{
+					if ((*OpObj)->HasField(TEXT("function")))
+						NodeParams->SetStringField(TEXT("function"), (*OpObj)->GetStringField(TEXT("function")));
+					if ((*OpObj)->HasField(TEXT("target_class")))
+						NodeParams->SetStringField(TEXT("target_class"), (*OpObj)->GetStringField(TEXT("target_class")));
+					if ((*OpObj)->HasField(TEXT("event")))
+						NodeParams->SetStringField(TEXT("event"), (*OpObj)->GetStringField(TEXT("event")));
+					if ((*OpObj)->HasField(TEXT("variable")))
+						NodeParams->SetStringField(TEXT("variable"), (*OpObj)->GetStringField(TEXT("variable")));
+					if ((*OpObj)->HasField(TEXT("num_outputs")))
+						NodeParams->SetNumberField(TEXT("num_outputs"), (*OpObj)->GetNumberField(TEXT("num_outputs")));
+				}
+
+				FString NodeId;
+				UEdGraphNode* NewNode = FBlueprintUtils::CreateNode(Graph, NodeType, NodeParams, PosX, PosY, NodeId, OpError);
+				if (NewNode)
+				{
+					bOpSuccess = true;
+					CreatedNodeIds.Add(i, NodeId);
+					OpResult->SetStringField(TEXT("node_id"), NodeId);
+
+					// Apply pin default values if provided
+					const TSharedPtr<FJsonObject>* PinValuesPtr;
+					if ((*OpObj)->TryGetObjectField(TEXT("pin_values"), PinValuesPtr))
+					{
+						for (const auto& PinValue : (*PinValuesPtr)->Values)
+						{
+							FString PinValueStr;
+							if (PinValue.Value->TryGetString(PinValueStr))
+							{
+								FString PinError;
+								FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
+							}
+						}
+					}
+				}
+			}
+		}
+		else if (Op == BlueprintModifyOps::DeleteNode)
+		{
+			if (!Graph)
+			{
+				OpError = GraphError.IsEmpty() ? TEXT("No valid graph found") : GraphError;
+			}
+			else
+			{
+				FString NodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("node_id")), CreatedNodeIds);
+				bOpSuccess = FBlueprintUtils::DeleteNode(Graph, NodeId, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::ConnectPins)
+		{
+			if (!Graph)
+			{
+				OpError = GraphError.IsEmpty() ? TEXT("No valid graph found") : GraphError;
+			}
+			else
+			{
+				FString SourceNodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("source_node_id")), CreatedNodeIds);
+				FString TargetNodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("target_node_id")), CreatedNodeIds);
+				FString SourcePin = (*OpObj)->GetStringField(TEXT("source_pin"));
+				FString TargetPin = (*OpObj)->GetStringField(TEXT("target_pin"));
+				bOpSuccess = FBlueprintUtils::ConnectPins(Graph, SourceNodeId, SourcePin, TargetNodeId, TargetPin, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::DisconnectPins)
+		{
+			if (!Graph)
+			{
+				OpError = GraphError.IsEmpty() ? TEXT("No valid graph found") : GraphError;
+			}
+			else
+			{
+				FString SourceNodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("source_node_id")), CreatedNodeIds);
+				FString TargetNodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("target_node_id")), CreatedNodeIds);
+				FString SourcePin = (*OpObj)->GetStringField(TEXT("source_pin"));
+				FString TargetPin = (*OpObj)->GetStringField(TEXT("target_pin"));
+				bOpSuccess = FBlueprintUtils::DisconnectPins(Graph, SourceNodeId, SourcePin, TargetNodeId, TargetPin, OpError);
+			}
+		}
+		else if (Op == BlueprintModifyOps::SetPinValue)
+		{
+			if (!Graph)
+			{
+				OpError = GraphError.IsEmpty() ? TEXT("No valid graph found") : GraphError;
+			}
+			else
+			{
+				FString NodeId = ResolveNodeRef((*OpObj)->GetStringField(TEXT("node_id")), CreatedNodeIds);
+				FString PinName = (*OpObj)->GetStringField(TEXT("pin_name"));
+				FString PinValue = (*OpObj)->GetStringField(TEXT("pin_value"));
+				bOpSuccess = FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinName, PinValue, OpError);
+			}
+		}
+		else
+		{
+			OpError = FString::Printf(TEXT("Unknown batch op: '%s'"), *Op);
+		}
+
+		OpResult->SetBoolField(TEXT("success"), bOpSuccess);
+		if (!bOpSuccess && !OpError.IsEmpty())
+		{
+			OpResult->SetStringField(TEXT("error"), OpError);
+			FailureCount++;
+		}
+		else if (bOpSuccess)
+		{
+			SuccessCount++;
+		}
+		else
+		{
+			FailureCount++;
+		}
+
+		ResultsArray.Add(MakeShared<FJsonValueObject>(OpResult));
+	}
+
+	// Compile once at the end
+	if (auto CompileError = Context.CompileAndFinalize(TEXT("Batch operations")))
+	{
+		// Compile failed but operations may have succeeded - include in result
+	}
+
+	// Build aggregated result
+	TSharedPtr<FJsonObject> ResultData = Context.BuildResultJson();
+	ResultData->SetNumberField(TEXT("total"), OperationsArray->Num());
+	ResultData->SetNumberField(TEXT("succeeded"), SuccessCount);
+	ResultData->SetNumberField(TEXT("failed"), FailureCount);
+	ResultData->SetArrayField(TEXT("results"), ResultsArray);
+
+	FString Message = FString::Printf(TEXT("Batch: %d succeeded, %d failed"), SuccessCount, FailureCount);
+
+	if (FailureCount > 0 && SuccessCount == 0)
+	{
+		return FMCPToolResult::Error(Message);
+	}
+
+	return FMCPToolResult::Success(Message, ResultData);
 }

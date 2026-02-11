@@ -200,11 +200,17 @@ private:
 	/** Get display-friendly tool name (strips MCP server prefix) */
 	static FString GetDisplayToolName(const FString& FullToolName);
 
-	/** Post-process text segments to render code blocks with monospace styling */
+	/** Post-process text segments to render code blocks and markdown styling */
 	void ParseAndRenderCodeBlocks();
 
 	/** Parse text into alternating plain/code sections split on triple-backtick fences */
 	static void ParseCodeFences(const FString& Input, TArray<TPair<FString, bool>>& OutSections);
+
+	/** Render a plain text section with markdown formatting (headers, lists, hr) */
+	void RenderMarkdownSection(TSharedPtr<SVerticalBox> Container, const FString& Text);
+
+	/** Strip inline markdown markers (**,  `) from text for clean display */
+	static FString StripInlineMarkdown(const FString& Text);
 
 	/** Refresh project context */
 	void RefreshProjectContext();
