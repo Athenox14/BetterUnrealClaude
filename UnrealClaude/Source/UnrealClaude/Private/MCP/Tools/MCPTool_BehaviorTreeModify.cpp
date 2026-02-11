@@ -1,6 +1,6 @@
 // Copyright Natali Caggiano. All Rights Reserved.
 
-#include "Tools/MCPTool_BehaviorTreeModify.h"
+#include "MCPTool_BehaviorTreeModify.h"
 #include "BehaviorTreeEditor.h"
 #include "UnrealClaudeModule.h"
 

@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "MCP/MCPToolBase.h"
+#include "../MCPToolBase.h"
 
 /**
  * MCP Tool: search_nodes

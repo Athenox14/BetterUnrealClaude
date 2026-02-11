@@ -1,6 +1,6 @@
 // Copyright Natali Caggiano. All Rights Reserved.
 
-#include "Tools/MCPTool_SearchNodes.h"
+#include "MCPTool_SearchNodes.h"
 #include "BlueprintNodeSearcher.h"
 #include "UnrealClaudeModule.h"
 
