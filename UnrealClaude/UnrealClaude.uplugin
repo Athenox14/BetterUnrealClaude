@@ -1,0 +1,39 @@
+{
+	"FileVersion": 3,
+	"Version": 2,
+	"VersionName": "2.0.0",
+	"FriendlyName": "Better UnrealClaude",
+	"Description": "Enhanced Claude Code CLI integration for Unreal Engine 5.7 with dynamic event/nodes discovery, optimized token usage, and Blueprint manipulation. Fork with performance improvements. Windows only.",
+	"Category": "Editor",
+	"CreatedBy": "Athenox Development (fork of Natali Caggiano)",
+	"CreatedByURL": "https://athenox.dev",
+	"DocsURL": "https://github.com/Athenox14/BetterUnrealClaude",
+	"MarketplaceURL": "",
+	"SupportURL": "https://discord.gg/4efJMvCVX9",
+	"EngineVersion": "5.7.0",
+	"CanContainContent": false,
+	"Installed": true,
+	"SupportedTargetPlatforms": [
+		"Win64"
+	],
+	"Modules": [
+		{
+			"Name": "UnrealClaude",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		}
+	]
+}
