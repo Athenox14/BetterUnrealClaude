@@ -54,19 +54,9 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("character");
 		Info.Description = TEXT(
-			"Consolidated character management: runtime actors and data assets.\n\n"
-			"Character Actor Operations:\n"
-			"- 'list_characters': Find all characters\n"
-			"- 'get_character_info': Get mesh, animation, transform\n"
-			"- 'get_movement_params': Query movement component\n"
-			"- 'set_movement_params': Modify movement values\n"
-			"- 'get_components': List all components\n\n"
-			"DataAsset Operations:\n"
-			"- 'create_character_data', 'query_character_data', 'get_character_data', 'update_character_data'\n\n"
-			"DataTable Operations:\n"
-			"- 'create_stats_table', 'query_stats_table', 'add_stats_row', 'update_stats_row', 'remove_stats_row'\n\n"
-			"Application:\n"
-			"- 'apply_character_data': Apply config to runtime character"
+			"Character management: runtime actors and data assets. "
+			"Ops: list/get/set character info/movement/components, create/query/update character data/stats table, apply config. "
+			"Ex: set_movement_params with max_walk_speed=600, jump_z_velocity=420."
 		);
 		Info.Parameters = {
 			// Operation selector

@@ -42,21 +42,9 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("enhanced_input");
 		Info.Description = TEXT(
-			"Create and modify Enhanced Input assets (InputAction, InputMappingContext).\n\n"
-			"Operations:\n"
-			"- 'create_input_action': Create new InputAction asset\n"
-			"- 'create_mapping_context': Create new InputMappingContext asset\n"
-			"- 'add_mapping': Add key binding to mapping context\n"
-			"- 'remove_mapping': Remove key binding from context\n"
-			"- 'add_trigger': Add trigger (Hold, Tap, etc.) to mapping\n"
-			"- 'add_modifier': Add modifier (Negate, Scale, etc.) to mapping\n"
-			"- 'query_context': List all mappings in a context\n"
-			"- 'query_action': Get InputAction details\n\n"
-			"Value Types: 'Digital' (bool), 'Axis1D' (float), 'Axis2D' (Vector2D), 'Axis3D' (Vector)\n\n"
-			"Trigger Types: 'Pressed', 'Released', 'Down', 'Hold', 'HoldAndRelease', 'Tap', 'Pulse', 'ChordAction'\n\n"
-			"Modifier Types: 'Negate', 'Swizzle', 'Scalar', 'DeadZone'\n\n"
-			"Keys: Standard UE key names (SpaceBar, W, A, S, D, LeftMouseButton, Gamepad_FaceButton_Bottom, etc.)\n\n"
-			"Default asset path: /Game/Input/ (customizable via package_path)"
+			"Enhanced Input assets. Ops: create_input_action, create_mapping_context, "
+			"add/remove_mapping, add_trigger, add_modifier, query_context, query_action. "
+			"Ex: add_mapping with action_path='/Game/Input/IA_Jump', key='SpaceBar', trigger='Pressed'."
 		);
 		Info.Parameters = {
 			// Operation selector

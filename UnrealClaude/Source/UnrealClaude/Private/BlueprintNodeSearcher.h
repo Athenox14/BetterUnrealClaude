@@ -103,6 +103,32 @@ public:
 	static TArray<FNodeSearchResult> ListLibraryFunctions(const FString& ClassName);
 
 	/**
+	 * Search for Event nodes by scanning multicast delegate properties
+	 * Discovers events dynamically without hardcoding (BeginPlay, Overlap, etc.)
+	 * @param Keyword - Search term to match event names
+	 * @param BaseClassName - Base class to scan (e.g., "Actor", "ActorComponent", empty for all)
+	 * @param MaxResults - Maximum results to return
+	 * @return Array of Event node search results
+	 */
+	static TArray<FNodeSearchResult> SearchEventNodes(
+		const FString& Keyword = FString(),
+		const FString& BaseClassName = TEXT("Actor"),
+		int32 MaxResults = 50
+	);
+
+	/**
+	 * Find a single node by keyword (convenience wrapper around SearchNodes)
+	 * Useful for quick lookups when you know the function name
+	 * @param Keyword - Search term to match
+	 * @param MaxResults - Maximum results to consider (defaults to 10)
+	 * @return First matching result, or empty if none found
+	 */
+	static TOptional<FNodeSearchResult> FindNodeForKeyword(
+		const FString& Keyword,
+		int32 MaxResults = 10
+	);
+
+	/**
 	 * Invalidate the internal cache (call on hot-reload)
 	 */
 	static void InvalidateCache();

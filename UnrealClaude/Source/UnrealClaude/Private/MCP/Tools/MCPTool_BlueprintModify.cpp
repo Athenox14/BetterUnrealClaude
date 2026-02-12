@@ -1048,8 +1048,61 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 	UEdGraph* Graph = FBlueprintUtils::FindGraph(Context.Blueprint, GraphName, bFunctionGraph, GraphError);
 	// Graph can be null (e.g. only variable/function ops) - we'll error per-op if needed
 
-	// Track created node IDs for #N references
+	// Pre-scan: Count node-creating operations and validate #N references
+	int32 ExpectedNodeCount = 0;
+	TSet<int32> NodeCreatingOps;
+	for (int32 i = 0; i < OperationsArray->Num(); i++)
+	{
+		const TSharedPtr<FJsonObject>* OpObj;
+		if ((*OperationsArray)[i]->TryGetObject(OpObj) && OpObj->IsValid())
+		{
+			FString Op = (*OpObj)->GetStringField(TEXT("op")).ToLower();
+			if (Op == BlueprintModifyOps::AddNode)
+			{
+				NodeCreatingOps.Add(i);
+				ExpectedNodeCount++;
+			}
+		}
+	}
+
+	// Validate #N references in all operations
+	for (int32 i = 0; i < OperationsArray->Num(); i++)
+	{
+		const TSharedPtr<FJsonObject>* OpObj;
+		if ((*OperationsArray)[i]->TryGetObject(OpObj) && OpObj->IsValid())
+		{
+			// Check all fields that might contain node references
+			TArray<FString> FieldsToCheck = {
+				TEXT("node_id"), TEXT("source_node_id"), TEXT("target_node_id")
+			};
+
+			for (const FString& Field : FieldsToCheck)
+			{
+				if ((*OpObj)->HasField(Field))
+				{
+					FString Ref = (*OpObj)->GetStringField(Field);
+					if (Ref.StartsWith(TEXT("#")))
+					{
+						FString IndexStr = Ref.Mid(1);
+						if (IndexStr.IsNumeric())
+						{
+							int32 RefIndex = FCString::Atoi(*IndexStr);
+							if (RefIndex < 0 || RefIndex >= ExpectedNodeCount)
+							{
+								return FMCPToolResult::Error(FString::Printf(
+									TEXT("Invalid node reference '%s' at operation %d: only %d node(s) will be created. Use #0 to #%d."),
+									*Ref, i, ExpectedNodeCount, ExpectedNodeCount - 1));
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Track created node IDs for #N references (indexed by node creation order, not operation order)
 	TMap<int32, FString> CreatedNodeIds;
+	int32 NodeCreationCounter = 0; // Counter for nodes created (separate from operation index)
 
 	// Results
 	TArray<TSharedPtr<FJsonValue>> ResultsArray;
@@ -1246,7 +1299,9 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 				if (NewNode)
 				{
 					bOpSuccess = true;
-					CreatedNodeIds.Add(i, NodeId);
+					// Map node creation counter (not operation index) to node ID
+					CreatedNodeIds.Add(NodeCreationCounter, NodeId);
+					NodeCreationCounter++;
 					OpResult->SetStringField(TEXT("node_id"), NodeId);
 
 					// Apply pin default values if provided

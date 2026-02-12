@@ -126,9 +126,16 @@ UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 		if (NumOutputs < 2) NumOutputs = 2;
 		NewNode = CreateSequenceNode(Graph, NumOutputs, PosX, PosY, OutError);
 	}
+	else if (NodeType.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
+	{
+		FString EventName = NodeParams.IsValid() ? NodeParams->GetStringField(TEXT("event_name")) : TEXT("");
+		FString EventClass = NodeParams.IsValid() ? NodeParams->GetStringField(TEXT("event_class")) : TEXT("");
+		Context = EventName;
+		NewNode = CreateEventNode(Graph, Blueprint, EventName, EventClass, PosX, PosY, OutError);
+	}
 	else
 	{
-		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, VariableGet, VariableSet, Sequence. Use search_nodes + CallFunction for events and functions."), *NodeType);
+		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, VariableGet, VariableSet, Sequence, Event. Use search_events to discover available events."), *NodeType);
 		return nullptr;
 	}
 
@@ -242,7 +249,19 @@ bool FBlueprintGraphEditor::ConnectPins(
 		}
 		if (!SourcePin)
 		{
-			OutError = FString::Printf(TEXT("Pin '%s' not found on source node '%s'"), *SourcePinName, *SourceNodeId);
+			// List available pins for better error message
+			TArray<FString> AvailablePins;
+			for (UEdGraphPin* Pin : SourceNode->Pins)
+			{
+				if (Pin)
+				{
+					FString Direction = (Pin->Direction == EGPD_Output) ? TEXT("output") : TEXT("input");
+					AvailablePins.Add(FString::Printf(TEXT("%s (%s)"), *Pin->PinName.ToString(), *Direction));
+				}
+			}
+			FString PinsList = FString::Join(AvailablePins, TEXT(", "));
+			OutError = FString::Printf(TEXT("Pin '%s' not found on source node '%s'. Available pins: [%s]"),
+				*SourcePinName, *SourceNodeId, *PinsList);
 			return false;
 		}
 	}
@@ -265,7 +284,19 @@ bool FBlueprintGraphEditor::ConnectPins(
 		}
 		if (!TargetPin)
 		{
-			OutError = FString::Printf(TEXT("Pin '%s' not found on target node '%s'"), *TargetPinName, *TargetNodeId);
+			// List available pins for better error message
+			TArray<FString> AvailablePins;
+			for (UEdGraphPin* Pin : TargetNode->Pins)
+			{
+				if (Pin)
+				{
+					FString Direction = (Pin->Direction == EGPD_Output) ? TEXT("output") : TEXT("input");
+					AvailablePins.Add(FString::Printf(TEXT("%s (%s)"), *Pin->PinName.ToString(), *Direction));
+				}
+			}
+			FString PinsList = FString::Join(AvailablePins, TEXT(", "));
+			OutError = FString::Printf(TEXT("Pin '%s' not found on target node '%s'. Available pins: [%s]"),
+				*TargetPinName, *TargetNodeId, *PinsList);
 			return false;
 		}
 	}
@@ -854,5 +885,95 @@ UEdGraphNode* FBlueprintGraphEditor::CreateSequenceNode(
 	}
 
 	return SeqNode;
+}
+
+UEdGraphNode* FBlueprintGraphEditor::CreateEventNode(
+	UEdGraph* Graph,
+	UBlueprint* Blueprint,
+	const FString& EventName,
+	const FString& EventClassName,
+	int32 PosX,
+	int32 PosY,
+	FString& OutError)
+{
+	if (EventName.IsEmpty())
+	{
+		OutError = TEXT("event_name is required");
+		return nullptr;
+	}
+
+	// Resolve event owner class (Blueprint's parent class by default)
+	UClass* EventOwnerClass = Blueprint->ParentClass;
+	if (!EventClassName.IsEmpty())
+	{
+		// Try to resolve specified class
+		for (TObjectIterator<UClass> It; It; ++It)
+		{
+			if ((*It)->GetName().Equals(EventClassName, ESearchCase::IgnoreCase))
+			{
+				EventOwnerClass = *It;
+				break;
+			}
+		}
+
+		if (!EventOwnerClass)
+		{
+			OutError = FString::Printf(TEXT("Event class '%s' not found"), *EventClassName);
+			return nullptr;
+		}
+	}
+
+	// Search for multicast delegate property matching EventName
+	FMulticastDelegateProperty* DelegateProperty = nullptr;
+	for (TFieldIterator<FMulticastDelegateProperty> PropIt(EventOwnerClass); PropIt; ++PropIt)
+	{
+		FString PropName = PropIt->GetName();
+		if (PropName.Equals(EventName, ESearchCase::IgnoreCase) ||
+			PropName.Equals(TEXT("On") + EventName, ESearchCase::IgnoreCase))
+		{
+			DelegateProperty = *PropIt;
+			break;
+		}
+	}
+
+	if (!DelegateProperty)
+	{
+		OutError = FString::Printf(TEXT("Event '%s' not found in class '%s'. Use search_events to find available events."),
+			*EventName, *EventOwnerClass->GetName());
+		return nullptr;
+	}
+
+	// Check if event already exists in graph
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		UK2Node_Event* ExistingEvent = Cast<UK2Node_Event>(Node);
+		if (ExistingEvent && ExistingEvent->EventReference.GetMemberName() == FName(*DelegateProperty->GetName()))
+		{
+			OutError = FString::Printf(TEXT("Event '%s' already exists in this graph"), *EventName);
+			return nullptr;
+		}
+	}
+
+	// Get signature function
+	UFunction* SignatureFunc = DelegateProperty->SignatureFunction;
+	if (!SignatureFunc)
+	{
+		OutError = FString::Printf(TEXT("Event '%s' has no signature function"), *EventName);
+		return nullptr;
+	}
+
+	// Create event node
+	FGraphNodeCreator<UK2Node_Event> NodeCreator(*Graph);
+	UK2Node_Event* EventNode = NodeCreator.CreateNode();
+	EventNode->EventReference.SetExternalDelegateMember(FName(*DelegateProperty->GetName()));
+	EventNode->bOverrideFunction = false;
+	EventNode->NodePosX = PosX;
+	EventNode->NodePosY = PosY;
+	NodeCreator.Finalize();
+
+	UE_LOG(LogUnrealClaude, Log, TEXT("Created Event node '%s' from delegate in '%s'"),
+		*EventName, *EventOwnerClass->GetName());
+
+	return EventNode;
 }
 

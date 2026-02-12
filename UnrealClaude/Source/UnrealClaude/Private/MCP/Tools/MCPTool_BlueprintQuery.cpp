@@ -8,6 +8,35 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/Blueprint.h"
 
+// Blueprint metadata cache (TTL: 30 seconds)
+namespace
+{
+	struct FBlueprintListCache
+	{
+		TArray<FAssetData> CachedAssets;
+		FDateTime LastRefresh;
+		static constexpr double CacheTTL = 30.0; // seconds
+
+		bool IsValid() const
+		{
+			return (FDateTime::Now() - LastRefresh).GetTotalSeconds() < CacheTTL;
+		}
+
+		void Refresh(const TArray<FAssetData>& NewAssets)
+		{
+			CachedAssets = NewAssets;
+			LastRefresh = FDateTime::Now();
+		}
+
+		void Invalidate()
+		{
+			CachedAssets.Empty();
+		}
+	};
+
+	FBlueprintListCache GBlueprintListCache;
+}
+
 FMCPToolResult FMCPTool_BlueprintQuery::Execute(const TSharedRef<FJsonObject>& Params)
 {
 	// Get operation type
@@ -48,9 +77,13 @@ FMCPToolResult FMCPTool_BlueprintQuery::Execute(const TSharedRef<FJsonObject>& P
 	{
 		return HandleListLibraryFunctions(Params);
 	}
+	else if (Operation == TEXT("search_events"))
+	{
+		return HandleSearchEvents(Params);
+	}
 
 	return FMCPToolResult::Error(FString::Printf(
-		TEXT("Unknown operation: '%s'. Valid operations: 'list', 'inspect', 'get_graph', 'search', 'get_node_pins', 'list_libraries', 'list_library_functions'"), *Operation));
+		TEXT("Unknown operation: '%s'. Valid operations: 'list', 'inspect', 'get_graph', 'search', 'get_node_pins', 'list_libraries', 'list_library_functions', 'search_events'"), *Operation));
 }
 
 FMCPToolResult FMCPTool_BlueprintQuery::ExecuteList(const TSharedRef<FJsonObject>& Params)
@@ -71,24 +104,42 @@ FMCPToolResult FMCPTool_BlueprintQuery::ExecuteList(const TSharedRef<FJsonObject
 		return FMCPToolResult::Error(ValidationError);
 	}
 
-	// Query AssetRegistry
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-
-	// Build filter
-	FARFilter Filter;
-	Filter.ClassPaths.Add(UBlueprint::StaticClass()->GetClassPathName());
-	Filter.bRecursivePaths = true;
-	Filter.bRecursiveClasses = true;
-
-	if (!PathFilter.IsEmpty())
-	{
-		Filter.PackagePaths.Add(FName(*PathFilter));
-	}
-
-	// Get assets
+	// Try cache first (only if no filters applied)
 	TArray<FAssetData> AssetDataList;
-	AssetRegistry.GetAssets(Filter, AssetDataList);
+	bool bUseCache = PathFilter == TEXT("/Game/") && TypeFilter.IsEmpty() && NameFilter.IsEmpty();
+
+	if (bUseCache && GBlueprintListCache.IsValid())
+	{
+		AssetDataList = GBlueprintListCache.CachedAssets;
+		UE_LOG(LogUnrealClaude, Verbose, TEXT("Blueprint list cache hit"));
+	}
+	else
+	{
+		// Query AssetRegistry
+		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+		IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+		// Build filter
+		FARFilter Filter;
+		Filter.ClassPaths.Add(UBlueprint::StaticClass()->GetClassPathName());
+		Filter.bRecursivePaths = true;
+		Filter.bRecursiveClasses = true;
+
+		if (!PathFilter.IsEmpty())
+		{
+			Filter.PackagePaths.Add(FName(*PathFilter));
+		}
+
+		// Get assets
+		AssetRegistry.GetAssets(Filter, AssetDataList);
+
+		// Cache if no filters
+		if (bUseCache)
+		{
+			GBlueprintListCache.Refresh(AssetDataList);
+			UE_LOG(LogUnrealClaude, Verbose, TEXT("Blueprint list cache refreshed (%d assets)"), AssetDataList.Num());
+		}
+	}
 
 	// Process results
 	TArray<TSharedPtr<FJsonValue>> ResultsArray;
@@ -380,4 +431,34 @@ FMCPToolResult FMCPTool_BlueprintQuery::HandleListLibraryFunctions(const TShared
 	return FMCPToolResult::Success(
 		FString::Printf(TEXT("Found %d functions in '%s'"), Functions.Num(), *LibraryClass),
 		ResponseData);
+}
+
+FMCPToolResult FMCPTool_BlueprintQuery::HandleSearchEvents(const TSharedRef<FJsonObject>& Params)
+{
+	FString Keyword = ExtractOptionalString(Params, TEXT("keyword"));
+	FString BaseClass = ExtractOptionalString(Params, TEXT("base_class"), TEXT("Actor"));
+	int32 MaxResults = ExtractOptionalNumber<int32>(Params, TEXT("max_results"), 50);
+
+	TArray<FNodeSearchResult> Results = FBlueprintNodeSearcher::SearchEventNodes(
+		Keyword, BaseClass, MaxResults);
+
+	TArray<TSharedPtr<FJsonValue>> ResultsArray;
+	for (const FNodeSearchResult& Result : Results)
+	{
+		ResultsArray.Add(MakeShared<FJsonValueObject>(Result.ToJson()));
+	}
+
+	TSharedPtr<FJsonObject> ResponseData = MakeShared<FJsonObject>();
+	ResponseData->SetArrayField(TEXT("events"), ResultsArray);
+	ResponseData->SetNumberField(TEXT("count"), Results.Num());
+	if (!Keyword.IsEmpty())
+	{
+		ResponseData->SetStringField(TEXT("keyword"), Keyword);
+	}
+	ResponseData->SetStringField(TEXT("base_class"), BaseClass);
+
+	return FMCPToolResult::Success(
+		FString::Printf(TEXT("Found %d events"), Results.Num()),
+		ResponseData
+	);
 }

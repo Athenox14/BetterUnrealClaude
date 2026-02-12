@@ -30,7 +30,7 @@ public:
 			FMCPToolParameter(TEXT("name_filter"), TEXT("string"), TEXT("Optional substring to filter actors by name"), false),
 			FMCPToolParameter(TEXT("include_hidden"), TEXT("boolean"), TEXT("Include hidden actors in results"), false, TEXT("false")),
 			FMCPToolParameter(TEXT("brief"), TEXT("boolean"), TEXT("Return brief info (name/label/class only). Set false for full transform data (default: true)"), false, TEXT("true")),
-			FMCPToolParameter(TEXT("limit"), TEXT("number"), TEXT("Maximum number of actors to return (1-1000, default: 25)"), false, TEXT("25")),
+			FMCPToolParameter(TEXT("limit"), TEXT("number"), TEXT("Maximum number of actors to return (1-1000, default: 10)"), false, TEXT("10")),
 			FMCPToolParameter(TEXT("offset"), TEXT("number"), TEXT("Number of actors to skip for pagination"), false, TEXT("0"))
 		};
 		Info.Annotations = FMCPToolAnnotations::ReadOnly();

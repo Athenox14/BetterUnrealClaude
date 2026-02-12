@@ -39,19 +39,9 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("blueprint_modify");
 		Info.Description = TEXT(
-			"Create and modify Blueprints programmatically. Auto-compiles after changes.\n\n"
-			"Complexity Levels:\n"
-			"Level 2 (Structure): 'create', 'add_variable', 'remove_variable', 'add_function', 'remove_function', 'add_component'\n"
-			"Level 3 (Nodes): 'add_node', 'add_nodes' (batch nodes), 'delete_node'\n"
-			"Level 4 (Wiring): 'connect_pins', 'disconnect_pins', 'set_pin_value'\n"
-			"Meta: 'batch' - execute multiple operations in one call (1 load, 1 compile)\n\n"
-			"Batch: Use 'operations' array with {op, ...params}. Reference created nodes with '#N' (0-based index).\n"
-			"Example: [{op:'add_node',...},{op:'connect_pins', source_node_id:'#0', ...}]\n\n"
-			"Workflow: Use blueprint_query first to understand existing structure, then modify.\n\n"
-			"Node types: CallFunction, Branch, Event, VariableGet, VariableSet, Sequence, "
-			"PrintString, Add, Subtract, Multiply, Divide\n\n"
-			"Variable types: bool, int32, float, FString, FVector, FRotator, AActor*, UObject*, etc.\n\n"
-			"Returns: Operation result with created node IDs (for subsequent connections)."
+			"Modify Blueprints. Ops: create, add/remove variable/function/component/node, "
+			"connect/disconnect/set_pin, batch (multi-op). Auto-compiles. "
+			"Ex: batch with [{op:'add_node',...},{op:'connect_pins',source_node_id:'#0',...}]"
 		);
 		Info.Parameters = {
 			// Operation selector

@@ -46,7 +46,7 @@ FMCPToolInfo FMCPTool_Asset::GetInfo() const
 	Info.Parameters.Add(FMCPToolParameter(TEXT("name_pattern"), TEXT("string"),
 		TEXT("[search] Substring to match in asset names"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("limit"), TEXT("integer"),
-		TEXT("[search/dependencies/referencers] Maximum results (1-1000, default: 25)"), false));
+		TEXT("[search/dependencies/referencers] Maximum results (1-1000, default: 10)"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("offset"), TEXT("integer"),
 		TEXT("[search/dependencies/referencers] Pagination offset (default: 0)"), false));
 

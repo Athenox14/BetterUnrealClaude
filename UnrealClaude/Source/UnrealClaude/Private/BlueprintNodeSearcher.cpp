@@ -333,10 +333,196 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::ListLibraryFunctions(const FSt
 	return Results;
 }
 
+TOptional<FNodeSearchResult> FBlueprintNodeSearcher::FindNodeForKeyword(
+	const FString& Keyword,
+	int32 MaxResults)
+{
+	if (Keyword.IsEmpty())
+	{
+		return TOptional<FNodeSearchResult>();
+	}
+
+	TArray<FNodeSearchResult> Results = SearchNodes(Keyword, FString(), false, true, MaxResults);
+
+	if (Results.Num() > 0)
+	{
+		return Results[0];
+	}
+
+	return TOptional<FNodeSearchResult>();
+}
+
 void FBlueprintNodeSearcher::InvalidateCache()
 {
 	bCacheValid = false;
 	CachedLibraryFunctions.Empty();
+}
+
+TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchEventNodes(
+	const FString& Keyword,
+	const FString& BaseClassName,
+	int32 MaxResults)
+{
+	TArray<FNodeSearchResult> Results;
+	MaxResults = FMath::Clamp(MaxResults, 1, 500);
+
+	// Resolve base class if specified
+	UClass* BaseClass = nullptr;
+	if (!BaseClassName.IsEmpty())
+	{
+		BaseClass = ResolveClass(BaseClassName);
+		if (!BaseClass)
+		{
+			UE_LOG(LogUnrealClaude, Warning, TEXT("SearchEventNodes: Failed to resolve base class '%s'"), *BaseClassName);
+			return Results;
+		}
+	}
+
+	// Scan all loaded classes
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		UClass* TestClass = *It;
+		if (!TestClass || TestClass->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated))
+		{
+			continue;
+		}
+
+		// Filter by base class if specified
+		if (BaseClass && !TestClass->IsChildOf(BaseClass))
+		{
+			continue;
+		}
+
+		// Skip non-Blueprint-accessible classes
+		if (TestClass->HasAnyClassFlags(CLASS_Hidden | CLASS_NotPlaceable))
+		{
+			continue;
+		}
+
+		// Scan for multicast delegate properties (Events)
+		for (TFieldIterator<FMulticastDelegateProperty> PropIt(TestClass, EFieldIteratorFlags::ExcludeSuper); PropIt; ++PropIt)
+		{
+			FMulticastDelegateProperty* DelegateProp = *PropIt;
+			if (!DelegateProp)
+			{
+				continue;
+			}
+
+			// Skip non-Blueprint-visible delegates
+			if (DelegateProp->HasAnyPropertyFlags(CPF_NativeAccessSpecifierPrivate | CPF_NativeAccessSpecifierProtected))
+			{
+				continue;
+			}
+
+			FString DelegateName = DelegateProp->GetName();
+			FString DisplayName = DelegateName;
+
+			// Clean up delegate naming conventions
+			if (DisplayName.StartsWith(TEXT("On")))
+			{
+				DisplayName = DisplayName.Mid(2);
+			}
+
+			// Apply keyword filter
+			if (!Keyword.IsEmpty())
+			{
+				if (!DisplayName.Contains(Keyword, ESearchCase::IgnoreCase) &&
+					!DelegateName.Contains(Keyword, ESearchCase::IgnoreCase) &&
+					!TestClass->GetName().Contains(Keyword, ESearchCase::IgnoreCase))
+				{
+					continue;
+				}
+			}
+
+			// Build result
+			FNodeSearchResult Result;
+			Result.DisplayName = DisplayName;
+			Result.ClassName = TestClass->GetName();
+			Result.FunctionName = DelegateName;
+			Result.NodeType = TEXT("Event");
+			Result.bIsPure = false;
+			Result.FullReference = Result.ClassName + TEXT("::") + DelegateName;
+
+			// Extract signature from delegate
+			UFunction* SignatureFunc = DelegateProp->SignatureFunction;
+			if (SignatureFunc)
+			{
+				// Add exec out pin
+				FNodePinInfo ExecOut;
+				ExecOut.Name = TEXT("then");
+				ExecOut.Direction = TEXT("Output");
+				ExecOut.Type = TEXT("exec");
+				ExecOut.bIsExec = true;
+				Result.Pins.Add(ExecOut);
+
+				// Extract delegate parameters as output pins
+				for (TFieldIterator<FProperty> ParamIt(SignatureFunc); ParamIt; ++ParamIt)
+				{
+					FProperty* Param = *ParamIt;
+					if (!Param || Param->HasAnyPropertyFlags(CPF_ReturnParm))
+					{
+						continue;
+					}
+
+					FNodePinInfo Pin;
+					Pin.Name = Param->GetName();
+					Pin.Direction = TEXT("Output");
+					Pin.Type = PropertyToPinType(Param);
+					Pin.SubCategory = PropertyToSubCategory(Param);
+					Pin.bIsExec = false;
+					Result.Pins.Add(Pin);
+				}
+			}
+
+			// Get class module
+			FString ClassPath = TestClass->GetPathName();
+			if (ClassPath.StartsWith(TEXT("/Script/")))
+			{
+				FString ModulePath = ClassPath;
+				ModulePath.RemoveFromStart(TEXT("/Script/"));
+				int32 DotIndex;
+				if (ModulePath.FindChar(TEXT('.'), DotIndex))
+				{
+					Result.Module = ModulePath.Left(DotIndex);
+				}
+			}
+			else if (ClassPath.StartsWith(TEXT("/Game/")))
+			{
+				Result.Module = TEXT("Project");
+			}
+
+			// Categorize event
+			if (DelegateName.Contains(TEXT("Begin")) || DelegateName.Contains(TEXT("Start")))
+			{
+				Result.Category = TEXT("Game");
+			}
+			else if (DelegateName.Contains(TEXT("Overlap")) || DelegateName.Contains(TEXT("Hit")) || DelegateName.Contains(TEXT("Collision")))
+			{
+				Result.Category = TEXT("Collision");
+			}
+			else if (DelegateName.Contains(TEXT("Input")) || DelegateName.Contains(TEXT("Key")) || DelegateName.Contains(TEXT("Mouse")))
+			{
+				Result.Category = TEXT("Input");
+			}
+			else if (DelegateName.Contains(TEXT("Damage")) || DelegateName.Contains(TEXT("Health")))
+			{
+				Result.Category = TEXT("Damage");
+			}
+			else
+			{
+				Result.Category = TEXT("Event");
+			}
+
+			Results.Add(Result);
+
+			if (Results.Num() >= MaxResults)
+			{
+				return Results;
+			}
+		}
+	}
+
+	return Results;
 }
 
 TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Function)

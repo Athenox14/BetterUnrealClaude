@@ -21,21 +21,9 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("blueprint_query");
 		Info.Description = TEXT(
-			"Query Blueprint information and discover nodes (read-only).\n\n"
-			"Operations:\n"
-			"- 'list': Find Blueprints in project with optional filters\n"
-			"- 'inspect': Get detailed Blueprint info (variables, functions, parent class)\n"
-			"- 'get_graph': Get graph structure (node count, events, connections)\n"
-			"- 'search': Find Blueprint nodes matching a keyword\n"
-			"- 'get_node_pins': Get exact pin layout for a specific function\n"
-			"- 'list_libraries': List all loaded UBlueprintFunctionLibrary classes\n"
-			"- 'list_library_functions': List all functions in a specific library\n\n"
-			"Use 'list' to discover Blueprints, 'search' to find nodes before adding them.\n\n"
-			"Example paths:\n"
-			"- '/Game/Blueprints/BP_Character'\n"
-			"- '/Game/UI/WBP_MainMenu'\n"
-			"- '/Game/Characters/ABP_Hero' (Animation Blueprint)\n\n"
-			"Returns: Blueprint metadata, variables, functions, graph structure, or node information."
+			"Query Blueprints (read-only). Ops: list, inspect, get_graph, search, "
+			"get_node_pins, list_libraries, list_library_functions, search_events. "
+			"Ex: search with keyword='Print' finds PrintString, PrintWarning nodes."
 		);
 		Info.Parameters = {
 			FMCPToolParameter(TEXT("operation"), TEXT("string"),
@@ -47,7 +35,7 @@ public:
 			FMCPToolParameter(TEXT("name_filter"), TEXT("string"),
 				TEXT("Name substring filter"), false),
 			FMCPToolParameter(TEXT("limit"), TEXT("number"),
-				TEXT("Maximum results to return (1-1000, default: 25)"), false, TEXT("25")),
+				TEXT("Maximum results to return (1-1000, default: 10)"), false, TEXT("10")),
 			FMCPToolParameter(TEXT("blueprint_path"), TEXT("string"),
 				TEXT("Full Blueprint asset path (required for inspect/get_graph)"), false),
 			FMCPToolParameter(TEXT("include_variables"), TEXT("boolean"),
@@ -98,4 +86,7 @@ private:
 
 	/** List all functions in a specific library */
 	FMCPToolResult HandleListLibraryFunctions(const TSharedRef<FJsonObject>& Params);
+
+	/** Search for Event nodes dynamically */
+	FMCPToolResult HandleSearchEvents(const TSharedRef<FJsonObject>& Params);
 };

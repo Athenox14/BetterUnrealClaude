@@ -216,6 +216,7 @@ private:
 	static UEdGraphNode* CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateSequenceNode(UEdGraph* Graph, int32 NumOutputs, int32 PosX, int32 PosY, FString& OutError);
+	static UEdGraphNode* CreateEventNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& EventName, const FString& EventClassName, int32 PosX, int32 PosY, FString& OutError);
 
 	// ID prefix for node comments
 	static const FString NodeIdPrefix;
