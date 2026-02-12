@@ -142,23 +142,9 @@ UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 		if (NumOutputs < 2) NumOutputs = 2;
 		NewNode = CreateSequenceNode(Graph, NumOutputs, PosX, PosY, OutError);
 	}
-	else if (NodeType.Equals(TEXT("Add"), ESearchCase::IgnoreCase) ||
-			 NodeType.Equals(TEXT("Subtract"), ESearchCase::IgnoreCase) ||
-			 NodeType.Equals(TEXT("Multiply"), ESearchCase::IgnoreCase) ||
-			 NodeType.Equals(TEXT("Divide"), ESearchCase::IgnoreCase))
-	{
-		Context = NodeType;
-		NewNode = CreateMathNode(Graph, NodeType, PosX, PosY, OutError);
-	}
-	else if (NodeType.Equals(TEXT("PrintString"), ESearchCase::IgnoreCase))
-	{
-		// Convenience alias for CallFunction with PrintString
-		Context = TEXT("PrintString");
-		NewNode = CreateCallFunctionNode(Graph, TEXT("PrintString"), TEXT("KismetSystemLibrary"), PosX, PosY, OutError);
-	}
 	else
 	{
-		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, Event, VariableGet, VariableSet, Sequence, Add, Subtract, Multiply, Divide, PrintString"), *NodeType);
+		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, Event, VariableGet, VariableSet, Sequence. Use CallFunction for math ops and other functions."), *NodeType);
 		return nullptr;
 	}
 
@@ -1014,51 +1000,3 @@ UEdGraphNode* FBlueprintGraphEditor::CreateSequenceNode(
 	return SeqNode;
 }
 
-UEdGraphNode* FBlueprintGraphEditor::CreateMathNode(
-	UEdGraph* Graph,
-	const FString& MathOp,
-	int32 PosX,
-	int32 PosY,
-	FString& OutError)
-{
-	// Find the appropriate math function
-	FName FunctionName;
-	if (MathOp.Equals(TEXT("Add"), ESearchCase::IgnoreCase))
-	{
-		FunctionName = FName("Add_FloatFloat");
-	}
-	else if (MathOp.Equals(TEXT("Subtract"), ESearchCase::IgnoreCase))
-	{
-		FunctionName = FName("Subtract_FloatFloat");
-	}
-	else if (MathOp.Equals(TEXT("Multiply"), ESearchCase::IgnoreCase))
-	{
-		FunctionName = FName("Multiply_FloatFloat");
-	}
-	else if (MathOp.Equals(TEXT("Divide"), ESearchCase::IgnoreCase))
-	{
-		FunctionName = FName("Divide_FloatFloat");
-	}
-	else
-	{
-		OutError = FString::Printf(TEXT("Unknown math operation: '%s'. Supported: Add, Subtract, Multiply, Divide"), *MathOp);
-		return nullptr;
-	}
-
-	UFunction* MathFunc = UKismetMathLibrary::StaticClass()->FindFunctionByName(FunctionName);
-	if (!MathFunc)
-	{
-		OutError = FString::Printf(TEXT("Math function '%s' not found"), *FunctionName.ToString());
-		return nullptr;
-	}
-
-	// Create a call function node for the math operation
-	FGraphNodeCreator<UK2Node_CallFunction> NodeCreator(*Graph);
-	UK2Node_CallFunction* MathNode = NodeCreator.CreateNode();
-	MathNode->SetFromFunction(MathFunc);
-	MathNode->NodePosX = PosX;
-	MathNode->NodePosY = PosY;
-	NodeCreator.Finalize();
-
-	return MathNode;
-}

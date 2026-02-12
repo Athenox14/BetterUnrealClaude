@@ -18,10 +18,9 @@
  *
  * Supported Node Types:
  * - Flow: Branch, Sequence
- * - Functions: CallFunction, PrintString
+ * - Functions: CallFunction (use search_nodes to discover functions)
  * - Variables: VariableGet, VariableSet
  * - Events: Event (BeginPlay, Tick, EndPlay)
- * - Math: Add, Subtract, Multiply, Divide
  *
  * Node ID System:
  * - Auto-generated descriptive IDs stored in NodeComment
@@ -59,8 +58,7 @@ public:
 	 * - "Event" - params: { event: "BeginPlay"|"Tick"|"EndPlay" }
 	 * - "VariableGet" / "VariableSet" - params: { variable }
 	 * - "Sequence" - params: { num_outputs }
-	 * - "PrintString"
-	 * - "Add", "Subtract", "Multiply", "Divide"
+	 * Use CallFunction with search_nodes for math ops, PrintString, etc.
 	 *
 	 * @param Graph - Graph to add node to
 	 * @param NodeType - Type of node (case insensitive)
@@ -221,7 +219,6 @@ private:
 	static UEdGraphNode* CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateSequenceNode(UEdGraph* Graph, int32 NumOutputs, int32 PosX, int32 PosY, FString& OutError);
-	static UEdGraphNode* CreateMathNode(UEdGraph* Graph, const FString& MathOp, int32 PosX, int32 PosY, FString& OutError);
 
 	// ID prefix for node comments
 	static const FString NodeIdPrefix;
