@@ -9,6 +9,8 @@
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-Integration-D97757?style=flat&logo=anthropic&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-21%20Tools-8A2BE2?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+[![Hosted by OxalisHeberg](https://img.shields.io/badge/Hosted%20by-OxalisHeberg-FF6600?style=flat&logo=server)](https://oxalisheberg.fr)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/Athenox14)
 
 **Enhanced Claude Code CLI integration for Unreal Engine 5.7** with dynamic Blueprint node discovery, optimized token usage, and advanced workflow validation.
 
@@ -538,6 +540,24 @@ Feel free to fork for your own needs! Possible areas for improvement:
 ## License
 
 MIT License - See [LICENSE](UnrealClaude/LICENSE) file.
+
+---
+
+## Sponsors
+
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/Athenox14?style=for-the-badge&logo=github&color=ea4aaa)](https://github.com/sponsors/Athenox14)
+
+**Support this project and get your name/logo here!**
+
+<!-- sponsors --><!-- sponsors -->
+
+---
+
+**Hosted by:**
+
+<a href="https://oxalisheberg.fr">
+  <img src="https://img.shields.io/badge/OxalisHeberg-Fast%20%26%20Reliable%20French%20Hosting-FF6600?style=for-the-badge&logo=server" alt="OxalisHeberg">
+</a>
 
 ---
 
