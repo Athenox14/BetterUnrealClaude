@@ -247,12 +247,14 @@ TSharedPtr<FJsonObject> FMCPJsonStructs::TransformToJson(const void* StructPtr)
 	const FTransform* Transform = static_cast<const FTransform*>(StructPtr);
 	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
 
-	Json->SetObjectField(TEXT("location"), VectorToJson(&Transform->GetLocation()));
+	FVector Location = Transform->GetLocation();
+	Json->SetObjectField(TEXT("location"), VectorToJson(&Location));
 
 	FRotator Rotation = Transform->GetRotation().Rotator();
 	Json->SetObjectField(TEXT("rotation"), RotatorToJson(&Rotation));
 
-	Json->SetObjectField(TEXT("scale"), VectorToJson(&Transform->GetScale3D()));
+	FVector Scale = Transform->GetScale3D();
+	Json->SetObjectField(TEXT("scale"), VectorToJson(&Scale));
 
 	return Json;
 }
