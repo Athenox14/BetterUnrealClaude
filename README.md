@@ -35,8 +35,6 @@ This fork adds **major performance and reliability improvements** to the origina
 
 Better UnrealClaude integrates the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) directly into the Unreal Engine 5.7 Editor. Instead of using the API directly, this plugin shells out to the `claude` command-line tool, leveraging your existing Claude Code authentication and capabilities.
 
-<img width="1131" height="1055" alt="{051D8F19-2677-4682-9DDF-A461041C1039}" src="https://github.com/user-attachments/assets/3803aed6-cb2d-4d2a-bac3-dbb1ec3fbf1d" />
-
 **Core Features:**
 - **21 MCP Tools** - Model Context Protocol server for comprehensive editor control
 - **Dynamic UE 5.7 Context System** - Accurate API documentation on demand
