@@ -14,6 +14,8 @@
  * - Setting properties on any loaded asset using reflection
  * - Saving assets to disk
  * - Getting asset information
+ * - Searching for assets
+ * - Querying asset relationships
  *
  * This tool works with assets in the Content Browser, not actors in a level.
  * Use set_property for actor properties, use this tool for asset properties.
@@ -22,7 +24,9 @@
  * - set_asset_property: Set a property on an asset using reflection
  * - save_asset: Save an asset to disk (mark dirty and/or save)
  * - get_asset_info: Get information about an asset
- * - list_assets: List assets in a directory with optional filtering
+ * - search: Search for assets by class, path, or name pattern
+ * - dependencies: Get assets that a specific asset depends on
+ * - referencers: Get assets that reference a specific asset
  */
 class FMCPTool_Asset : public FMCPToolBase
 {
@@ -35,7 +39,9 @@ private:
 	FMCPToolResult ExecuteSetAssetProperty(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteSaveAsset(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteGetAssetInfo(const TSharedRef<FJsonObject>& Params);
-	FMCPToolResult ExecuteListAssets(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteSearch(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteDependencies(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteReferencers(const TSharedRef<FJsonObject>& Params);
 
 	// Property reflection helpers (adapted from SetProperty tool)
 	bool NavigateToProperty(
@@ -61,4 +67,6 @@ private:
 	// Utility
 	TSharedPtr<FJsonObject> BuildAssetInfoJson(UObject* Asset);
 	TArray<TSharedPtr<FJsonValue>> GetAssetProperties(UObject* Asset, bool bEditableOnly);
+	TSharedPtr<FJsonObject> AssetDataToJson(const FAssetData& AssetData) const;
+	FMCPToolResult ExecuteRelations(const TSharedRef<FJsonObject>& Params, bool bIsDependencies);
 };

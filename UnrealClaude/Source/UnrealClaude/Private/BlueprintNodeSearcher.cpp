@@ -12,16 +12,29 @@
 #include "Kismet/KismetStringLibrary.h"
 #include "Kismet/KismetArrayLibrary.h"
 #include "Kismet/KismetTextLibrary.h"
+#include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Engine/Blueprint.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 
-// Static members
 TMap<FString, TArray<FNodeSearchResult>> FBlueprintNodeSearcher::CachedLibraryFunctions;
 bool FBlueprintNodeSearcher::bCacheValid = false;
 
-// ===== JSON Serialization =====
+TArray<FCommonLibraryClasses::FLibraryEntry> FCommonLibraryClasses::GetAll()
+{
+	static const FLibraryEntry Libraries[] = {
+		{ TEXT("KismetSystemLibrary"),      []() -> UClass* { return UKismetSystemLibrary::StaticClass(); } },
+		{ TEXT("KismetMathLibrary"),         []() -> UClass* { return UKismetMathLibrary::StaticClass(); } },
+		{ TEXT("GameplayStatics"),           []() -> UClass* { return UGameplayStatics::StaticClass(); } },
+		{ TEXT("KismetStringLibrary"),       []() -> UClass* { return UKismetStringLibrary::StaticClass(); } },
+		{ TEXT("KismetArrayLibrary"),        []() -> UClass* { return UKismetArrayLibrary::StaticClass(); } },
+		{ TEXT("KismetTextLibrary"),         []() -> UClass* { return UKismetTextLibrary::StaticClass(); } },
+		{ TEXT("AIBlueprintHelperLibrary"),  []() -> UClass* { return UAIBlueprintHelperLibrary::StaticClass(); } },
+	};
+
+	return TArray<FLibraryEntry>(Libraries, UE_ARRAY_COUNT(Libraries));
+}
 
 TSharedPtr<FJsonObject> FNodePinInfo::ToJson() const
 {
@@ -63,8 +76,6 @@ TSharedPtr<FJsonObject> FNodeSearchResult::ToJson() const
 	return Json;
 }
 
-// ===== Core Search =====
-
 TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 	const FString& Keyword,
 	const FString& CategoryFilter,
@@ -81,7 +92,6 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 
 	MaxResults = FMath::Clamp(MaxResults, 1, 500);
 
-	// Scan all UBlueprintFunctionLibrary subclasses
 	for (TObjectIterator<UClass> It; It; ++It)
 	{
 		UClass* TestClass = *It;
@@ -95,7 +105,6 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 
 		if (!bIsFunctionLibrary && !bIncludeK2Nodes)
 		{
-			// Also scan classes with BlueprintCallable functions
 			bool bHasBPFunctions = false;
 			for (TFieldIterator<UFunction> FuncIt(TestClass, EFieldIteratorFlags::ExcludeSuper); FuncIt; ++FuncIt)
 			{
@@ -111,7 +120,6 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 			}
 		}
 
-		// Skip project Blueprints if not wanted
 		FString ClassPath = TestClass->GetPathName();
 		if (!bIncludeProjectFunctions && ClassPath.StartsWith(TEXT("/Game/")))
 		{
@@ -129,20 +137,17 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 			FString FuncName = Function->GetName();
 			FString DisplayName = FuncName;
 
-			// Strip K2_ prefix for display
 			if (DisplayName.StartsWith(TEXT("K2_")))
 			{
 				DisplayName = DisplayName.Mid(3);
 			}
 
-			// Category from metadata
 			FString FuncCategory;
 			if (Function->HasMetaData(TEXT("Category")))
 			{
 				FuncCategory = Function->GetMetaData(TEXT("Category"));
 			}
 
-			// Keyword match on function name, display name, category, class name
 			bool bMatch = DisplayName.Contains(Keyword, ESearchCase::IgnoreCase)
 				|| FuncName.Contains(Keyword, ESearchCase::IgnoreCase)
 				|| FuncCategory.Contains(Keyword, ESearchCase::IgnoreCase)
@@ -153,7 +158,6 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 				continue;
 			}
 
-			// Category filter
 			if (!CategoryFilter.IsEmpty() && !FuncCategory.Contains(CategoryFilter, ESearchCase::IgnoreCase))
 			{
 				continue;
@@ -174,11 +178,9 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::SearchNodes(
 
 TOptional<FNodeSearchResult> FBlueprintNodeSearcher::GetNodePinLayout(const FString& FunctionReference)
 {
-	// Parse "ClassName::FunctionName"
 	FString ClassName, FunctionName;
 	if (!FunctionReference.Split(TEXT("::"), &ClassName, &FunctionName))
 	{
-		// Try as just a function name, search all libraries
 		FunctionName = FunctionReference;
 		ClassName = FString();
 	}
@@ -200,7 +202,6 @@ TOptional<FNodeSearchResult> FBlueprintNodeSearcher::GetNodePinLayout(const FStr
 		return Found;
 	};
 
-	// If class specified, resolve it
 	if (!ClassName.IsEmpty())
 	{
 		UClass* FoundClass = ResolveClass(ClassName);
@@ -215,7 +216,6 @@ TOptional<FNodeSearchResult> FBlueprintNodeSearcher::GetNodePinLayout(const FStr
 		return TOptional<FNodeSearchResult>();
 	}
 
-	// No class specified - search all function libraries
 	for (TObjectIterator<UClass> It; It; ++It)
 	{
 		UClass* TestClass = *It;
@@ -247,7 +247,6 @@ TArray<TSharedPtr<FJsonObject>> FBlueprintNodeSearcher::ListFunctionLibraries()
 			continue;
 		}
 
-		// Count Blueprint-callable functions
 		int32 FunctionCount = 0;
 		for (TFieldIterator<UFunction> FuncIt(TestClass, EFieldIteratorFlags::ExcludeSuper); FuncIt; ++FuncIt)
 		{
@@ -267,7 +266,6 @@ TArray<TSharedPtr<FJsonObject>> FBlueprintNodeSearcher::ListFunctionLibraries()
 		LibJson->SetStringField(TEXT("path"), TestClass->GetPathName());
 		LibJson->SetNumberField(TEXT("function_count"), FunctionCount);
 
-		// Extract module from path
 		FString ModulePath = TestClass->GetPathName();
 		if (ModulePath.StartsWith(TEXT("/Script/")))
 		{
@@ -288,7 +286,6 @@ TArray<TSharedPtr<FJsonObject>> FBlueprintNodeSearcher::ListFunctionLibraries()
 		Results.Add(LibJson);
 	}
 
-	// Sort by class name
 	Results.Sort([](const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B)
 	{
 		return A->GetStringField(TEXT("class_name")) < B->GetStringField(TEXT("class_name"));
@@ -299,7 +296,6 @@ TArray<TSharedPtr<FJsonObject>> FBlueprintNodeSearcher::ListFunctionLibraries()
 
 TArray<FNodeSearchResult> FBlueprintNodeSearcher::ListLibraryFunctions(const FString& ClassName)
 {
-	// Check cache
 	if (bCacheValid)
 	{
 		if (TArray<FNodeSearchResult>* Cached = CachedLibraryFunctions.Find(ClassName))
@@ -327,13 +323,11 @@ TArray<FNodeSearchResult> FBlueprintNodeSearcher::ListLibraryFunctions(const FSt
 		Results.Add(BuildResultFromFunction(Function, FoundClass));
 	}
 
-	// Sort by function name
 	Results.Sort([](const FNodeSearchResult& A, const FNodeSearchResult& B)
 	{
 		return A.FunctionName < B.FunctionName;
 	});
 
-	// Cache it
 	CachedLibraryFunctions.Add(ClassName, Results);
 
 	return Results;
@@ -345,8 +339,6 @@ void FBlueprintNodeSearcher::InvalidateCache()
 	CachedLibraryFunctions.Empty();
 }
 
-// ===== Pin Extraction =====
-
 TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Function)
 {
 	TArray<FNodePinInfo> Pins;
@@ -357,7 +349,6 @@ TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Func
 
 	bool bHasExecPins = !Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
 
-	// Add exec pins for impure functions
 	if (bHasExecPins)
 	{
 		FNodePinInfo ExecIn;
@@ -375,7 +366,6 @@ TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Func
 		Pins.Add(ExecOut);
 	}
 
-	// Iterate function parameters
 	for (TFieldIterator<FProperty> PropIt(Function); PropIt; ++PropIt)
 	{
 		FProperty* Prop = *PropIt;
@@ -390,7 +380,6 @@ TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Func
 		Pin.SubCategory = PropertyToSubCategory(Prop);
 		Pin.bIsExec = false;
 
-		// Determine direction
 		if (Prop->HasAnyPropertyFlags(CPF_ReturnParm))
 		{
 			Pin.Name = TEXT("ReturnValue");
@@ -399,7 +388,6 @@ TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Func
 		else if (Prop->HasAnyPropertyFlags(CPF_OutParm))
 		{
 			Pin.Direction = TEXT("Output");
-			// Reference params that are also input
 			if (!Prop->HasAnyPropertyFlags(CPF_ConstParm) && Prop->HasAnyPropertyFlags(CPF_ReferenceParm))
 			{
 				Pin.Direction = TEXT("Output");
@@ -410,20 +398,17 @@ TArray<FNodePinInfo> FBlueprintNodeSearcher::ExtractFunctionPins(UFunction* Func
 			Pin.Direction = TEXT("Input");
 		}
 
-		// Get default value from metadata
 		FString MetaDefaultKey = FString::Printf(TEXT("CPP_Default_%s"), *Prop->GetName());
 		if (Function->HasMetaData(FName(*MetaDefaultKey)))
 		{
 			Pin.DefaultValue = Function->GetMetaData(FName(*MetaDefaultKey));
 		}
 
-		// Skip hidden "WorldContextObject" parameter
 		if (Pin.Name == TEXT("WorldContextObject"))
 		{
 			continue;
 		}
 
-		// Skip self pin for static library functions
 		if (Pin.Name == TEXT("self"))
 		{
 			continue;
@@ -559,21 +544,16 @@ FString FBlueprintNodeSearcher::PropertyToSubCategory(FProperty* Property)
 	return FString();
 }
 
-// ===== Helpers =====
-
 UClass* FBlueprintNodeSearcher::ResolveClass(const FString& ClassName)
 {
-	// 1. Direct FindObject
 	UClass* Found = FindObject<UClass>(nullptr, *ClassName);
 
-	// 2. Try with U prefix
 	if (!Found)
 	{
 		FString WithU = FString::Printf(TEXT("U%s"), *ClassName);
 		Found = FindObject<UClass>(nullptr, *WithU);
 	}
 
-	// 3. Try /Script/ paths
 	if (!Found)
 	{
 		static const TCHAR* ScriptModules[] = {
@@ -601,20 +581,10 @@ UClass* FBlueprintNodeSearcher::ResolveClass(const FString& ClassName)
 		}
 	}
 
-	// 4. Well-known classes
 	if (!Found)
 	{
-		struct FKnownClass { const TCHAR* Name; UClass* (*GetClass)(); };
-		static const FKnownClass KnownClasses[] = {
-			{ TEXT("KismetSystemLibrary"),    []() -> UClass* { return UKismetSystemLibrary::StaticClass(); } },
-			{ TEXT("KismetMathLibrary"),      []() -> UClass* { return UKismetMathLibrary::StaticClass(); } },
-			{ TEXT("GameplayStatics"),        []() -> UClass* { return UGameplayStatics::StaticClass(); } },
-			{ TEXT("KismetStringLibrary"),    []() -> UClass* { return UKismetStringLibrary::StaticClass(); } },
-			{ TEXT("KismetArrayLibrary"),     []() -> UClass* { return UKismetArrayLibrary::StaticClass(); } },
-			{ TEXT("KismetTextLibrary"),      []() -> UClass* { return UKismetTextLibrary::StaticClass(); } },
-		};
-
-		for (const FKnownClass& Known : KnownClasses)
+		TArray<FCommonLibraryClasses::FLibraryEntry> KnownClasses = FCommonLibraryClasses::GetAll();
+		for (const FCommonLibraryClasses::FLibraryEntry& Known : KnownClasses)
 		{
 			if (ClassName.Equals(Known.Name, ESearchCase::IgnoreCase))
 			{
@@ -624,7 +594,6 @@ UClass* FBlueprintNodeSearcher::ResolveClass(const FString& ClassName)
 		}
 	}
 
-	// 5. Global search
 	if (!Found)
 	{
 		for (TObjectIterator<UClass> It; It; ++It)
@@ -654,17 +623,14 @@ FNodeSearchResult FBlueprintNodeSearcher::BuildResultFromFunction(UFunction* Fun
 	Result.ClassName = OwnerClass ? OwnerClass->GetName() : TEXT("");
 	Result.FullReference = Result.ClassName + TEXT("::") + Result.FunctionName;
 
-	// Category
 	if (Function->HasMetaData(TEXT("Category")))
 	{
 		Result.Category = Function->GetMetaData(TEXT("Category"));
 	}
 
-	// Pure/impure
 	Result.bIsPure = Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
 	Result.NodeType = Result.bIsPure ? TEXT("PureFunction") : TEXT("Function");
 
-	// Module from class path
 	if (OwnerClass)
 	{
 		FString ClassPath = OwnerClass->GetPathName();
@@ -684,7 +650,6 @@ FNodeSearchResult FBlueprintNodeSearcher::BuildResultFromFunction(UFunction* Fun
 		}
 	}
 
-	// Extract pins
 	Result.Pins = ExtractFunctionPins(Function);
 
 	return Result;
@@ -697,19 +662,16 @@ bool FBlueprintNodeSearcher::IsBlueprintCallable(UFunction* Function)
 		return false;
 	}
 
-	// Must be BlueprintCallable or BlueprintPure
 	if (!Function->HasAnyFunctionFlags(FUNC_BlueprintCallable))
 	{
 		return false;
 	}
 
-	// Skip editor-only, deprecated
 	if (Function->HasMetaData(TEXT("DeprecatedFunction")))
 	{
 		return false;
 	}
 
-	// Skip internal/hidden
 	if (Function->HasMetaData(TEXT("BlueprintInternalUseOnly")))
 	{
 		return false;

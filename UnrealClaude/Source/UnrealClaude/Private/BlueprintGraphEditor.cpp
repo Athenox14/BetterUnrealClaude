@@ -1,6 +1,7 @@
 // Copyright Natali Caggiano. All Rights Reserved.
 
 #include "BlueprintGraphEditor.h"
+#include "BlueprintNodeSearcher.h"
 #include "UnrealClaudeModule.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "K2Node_FunctionEntry.h"
@@ -22,11 +23,8 @@
 #include "UObject/UObjectIterator.h"
 #include "HAL/PlatformAtomics.h"
 
-// Static member initialization
 volatile int32 FBlueprintGraphEditor::NodeIdCounter = 0;
 const FString FBlueprintGraphEditor::NodeIdPrefix = TEXT("MCP_ID:");
-
-// ===== Graph Finding =====
 
 UEdGraph* FBlueprintGraphEditor::FindGraph(
 	UBlueprint* Blueprint,
@@ -40,10 +38,7 @@ UEdGraph* FBlueprintGraphEditor::FindGraph(
 		return nullptr;
 	}
 
-	// Get the appropriate graph array (UE 5.7 uses TObjectPtr)
 	auto& Graphs = bFunctionGraph ? Blueprint->FunctionGraphs : Blueprint->UbergraphPages;
-
-	// If no name specified, return the first graph (default)
 	if (GraphName.IsEmpty())
 	{
 		if (Graphs.Num() > 0 && Graphs[0])
@@ -54,7 +49,6 @@ UEdGraph* FBlueprintGraphEditor::FindGraph(
 		return nullptr;
 	}
 
-	// Search by name
 	for (UEdGraph* Graph : Graphs)
 	{
 		if (Graph && Graph->GetName() == GraphName)
@@ -63,7 +57,6 @@ UEdGraph* FBlueprintGraphEditor::FindGraph(
 		}
 	}
 
-	// Build list of available graphs for error message
 	TArray<FString> AvailableGraphs;
 	for (UEdGraph* Graph : Graphs)
 	{
@@ -78,8 +71,6 @@ UEdGraph* FBlueprintGraphEditor::FindGraph(
 		*FString::Join(AvailableGraphs, TEXT(", ")));
 	return nullptr;
 }
-
-// ===== Node Management =====
 
 UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 	UEdGraph* Graph,
@@ -106,7 +97,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 	UEdGraphNode* NewNode = nullptr;
 	FString Context;
 
-	// Dispatch to appropriate creation function
 	if (NodeType.Equals(TEXT("CallFunction"), ESearchCase::IgnoreCase))
 	{
 		FString FunctionName = NodeParams.IsValid() ? NodeParams->GetStringField(TEXT("function")) : TEXT("");
@@ -117,12 +107,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 	else if (NodeType.Equals(TEXT("Branch"), ESearchCase::IgnoreCase) || NodeType.Equals(TEXT("IfThenElse"), ESearchCase::IgnoreCase))
 	{
 		NewNode = CreateBranchNode(Graph, PosX, PosY, OutError);
-	}
-	else if (NodeType.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
-	{
-		FString EventName = NodeParams.IsValid() ? NodeParams->GetStringField(TEXT("event")) : TEXT("");
-		Context = EventName;
-		NewNode = CreateEventNode(Graph, EventName, PosX, PosY, OutError);
 	}
 	else if (NodeType.Equals(TEXT("VariableGet"), ESearchCase::IgnoreCase) || NodeType.Equals(TEXT("GetVariable"), ESearchCase::IgnoreCase))
 	{
@@ -144,17 +128,15 @@ UEdGraphNode* FBlueprintGraphEditor::CreateNode(
 	}
 	else
 	{
-		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, Event, VariableGet, VariableSet, Sequence. Use CallFunction for math ops and other functions."), *NodeType);
+		OutError = FString::Printf(TEXT("Unknown node type: '%s'. Supported: CallFunction, Branch, VariableGet, VariableSet, Sequence. Use search_nodes + CallFunction for events and functions."), *NodeType);
 		return nullptr;
 	}
 
 	if (NewNode)
 	{
-		// Generate and set node ID
 		OutNodeId = GenerateNodeId(NodeType, Context, Graph);
 		SetNodeId(NewNode, OutNodeId);
 
-		// Mark blueprint as modified
 		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 
 		UE_LOG(LogUnrealClaude, Log, TEXT("Created node '%s' (type: %s) at (%d, %d)"), *OutNodeId, *NodeType, PosX, PosY);
@@ -180,10 +162,8 @@ bool FBlueprintGraphEditor::DeleteNode(UEdGraph* Graph, const FString& NodeId, F
 
 	UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
 
-	// Break all connections first
 	Node->BreakAllNodeLinks();
 
-	// Remove from graph
 	Graph->RemoveNode(Node);
 
 	if (Blueprint)
@@ -213,8 +193,6 @@ UEdGraphNode* FBlueprintGraphEditor::FindNodeById(UEdGraph* Graph, const FString
 	return nullptr;
 }
 
-// ===== Pin & Connection Management =====
-
 bool FBlueprintGraphEditor::ConnectPins(
 	UEdGraph* Graph,
 	const FString& SourceNodeId,
@@ -229,7 +207,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		return false;
 	}
 
-	// Find source node by MCP-generated ID
 	UEdGraphNode* SourceNode = FindNodeById(Graph, SourceNodeId);
 	if (!SourceNode)
 	{
@@ -237,7 +214,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		return false;
 	}
 
-	// Find target node
 	UEdGraphNode* TargetNode = FindNodeById(Graph, TargetNodeId);
 	if (!TargetNode)
 	{
@@ -245,13 +221,11 @@ bool FBlueprintGraphEditor::ConnectPins(
 		return false;
 	}
 
-	// Find pins - auto-detect exec pins if names are empty
 	UEdGraphPin* SourcePin = nullptr;
 	UEdGraphPin* TargetPin = nullptr;
 
 	if (SourcePinName.IsEmpty())
 	{
-		// Auto-select first exec output
 		SourcePin = GetExecPin(SourceNode, true);
 		if (!SourcePin)
 		{
@@ -264,7 +238,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		SourcePin = FindPinByName(SourceNode, SourcePinName, EGPD_Output);
 		if (!SourcePin)
 		{
-			// Try input direction for bidirectional data pins
 			SourcePin = FindPinByName(SourceNode, SourcePinName, EGPD_Input);
 		}
 		if (!SourcePin)
@@ -276,7 +249,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 
 	if (TargetPinName.IsEmpty())
 	{
-		// Auto-select first exec input
 		TargetPin = GetExecPin(TargetNode, false);
 		if (!TargetPin)
 		{
@@ -289,7 +261,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		TargetPin = FindPinByName(TargetNode, TargetPinName, EGPD_Input);
 		if (!TargetPin)
 		{
-			// Try output direction for bidirectional data pins
 			TargetPin = FindPinByName(TargetNode, TargetPinName, EGPD_Output);
 		}
 		if (!TargetPin)
@@ -299,7 +270,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		}
 	}
 
-	// Check if connection is valid
 	const UEdGraphSchema* Schema = Graph->GetSchema();
 	if (Schema)
 	{
@@ -311,7 +281,6 @@ bool FBlueprintGraphEditor::ConnectPins(
 		}
 	}
 
-	// Make the connection
 	SourcePin->MakeLinkTo(TargetPin);
 
 	UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
@@ -341,7 +310,6 @@ bool FBlueprintGraphEditor::DisconnectPins(
 		return false;
 	}
 
-	// Find nodes
 	UEdGraphNode* SourceNode = FindNodeById(Graph, SourceNodeId);
 	if (!SourceNode)
 	{
@@ -356,7 +324,6 @@ bool FBlueprintGraphEditor::DisconnectPins(
 		return false;
 	}
 
-	// Find pins
 	UEdGraphPin* SourcePin = FindPinByName(SourceNode, SourcePinName, EGPD_MAX);
 	if (!SourcePin)
 	{
@@ -371,7 +338,6 @@ bool FBlueprintGraphEditor::DisconnectPins(
 		return false;
 	}
 
-	// Break the link
 	SourcePin->BreakLinkTo(TargetPin);
 
 	UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
@@ -414,7 +380,6 @@ bool FBlueprintGraphEditor::SetPinDefaultValue(
 		return false;
 	}
 
-	// Set the default value
 	const UEdGraphSchema* Schema = Graph->GetSchema();
 	if (Schema)
 	{
@@ -479,8 +444,6 @@ UEdGraphPin* FBlueprintGraphEditor::GetExecPin(UEdGraphNode* Node, bool bOutput)
 	return nullptr;
 }
 
-// ===== Serialization =====
-
 TSharedPtr<FJsonObject> FBlueprintGraphEditor::SerializeNodeInfo(UEdGraphNode* Node)
 {
 	TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
@@ -495,7 +458,6 @@ TSharedPtr<FJsonObject> FBlueprintGraphEditor::SerializeNodeInfo(UEdGraphNode* N
 	NodeObj->SetNumberField(TEXT("pos_x"), Node->NodePosX);
 	NodeObj->SetNumberField(TEXT("pos_y"), Node->NodePosY);
 
-	// Serialize pins
 	TArray<TSharedPtr<FJsonValue>> Pins;
 	for (UEdGraphPin* Pin : Node->Pins)
 	{
@@ -505,7 +467,6 @@ TSharedPtr<FJsonObject> FBlueprintGraphEditor::SerializeNodeInfo(UEdGraphNode* N
 			PinObj->SetStringField(TEXT("name"), Pin->PinName.ToString());
 			PinObj->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"));
 
-			// Convert pin type to string representation
 			FString TypeStr;
 			if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
 			{
@@ -560,8 +521,6 @@ TSharedPtr<FJsonObject> FBlueprintGraphEditor::SerializeNodeInfo(UEdGraphNode* N
 	return NodeObj;
 }
 
-// ===== Node ID System =====
-
 FString FBlueprintGraphEditor::GenerateNodeId(const FString& NodeType, const FString& Context, UEdGraph* Graph)
 {
 	FString BaseId;
@@ -574,11 +533,9 @@ FString FBlueprintGraphEditor::GenerateNodeId(const FString& NodeType, const FSt
 		BaseId = FString::Printf(TEXT("%s_%s"), *NodeType, *Context);
 	}
 
-	// Ensure uniqueness with atomic increment for thread safety
 	int32 Counter = FPlatformAtomics::InterlockedIncrement(&NodeIdCounter);
 	FString NodeId = FString::Printf(TEXT("%s_%d"), *BaseId, Counter);
 
-	// Verify uniqueness in graph
 	if (Graph)
 	{
 		while (FindNodeById(Graph, NodeId) != nullptr)
@@ -595,7 +552,6 @@ void FBlueprintGraphEditor::SetNodeId(UEdGraphNode* Node, const FString& NodeId)
 {
 	if (Node)
 	{
-		// Store ID in node comment (visible in editor, persisted)
 		Node->NodeComment = NodeIdPrefix + NodeId;
 	}
 }
@@ -607,7 +563,6 @@ FString FBlueprintGraphEditor::GetNodeId(UEdGraphNode* Node)
 		return FString();
 	}
 
-	// Extract ID from node comment
 	if (Node->NodeComment.StartsWith(NodeIdPrefix))
 	{
 		return Node->NodeComment.RightChop(NodeIdPrefix.Len());
@@ -615,8 +570,6 @@ FString FBlueprintGraphEditor::GetNodeId(UEdGraphNode* Node)
 
 	return FString();
 }
-
-// ===== Private Node Creation Helpers =====
 
 UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 	UEdGraph* Graph,
@@ -632,7 +585,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 		return nullptr;
 	}
 
-	// Support "Class::Function" format
 	FString ActualFunctionName = FunctionName;
 	FString ActualTargetClass = TargetClass;
 	if (FunctionName.Contains(TEXT("::")))
@@ -650,27 +602,21 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 	UClass* FunctionOwner = nullptr;
 	TArray<FString> SearchedClasses;
 
-	// Helper lambda: try FindFunctionByName with K2_ prefix fallback
 	auto TryFindFunction = [&ActualFunctionName](UClass* InClass) -> UFunction*
 	{
 		if (!InClass) return nullptr;
 		UFunction* Found = InClass->FindFunctionByName(FName(*ActualFunctionName));
 		if (!Found)
 		{
-			// Try K2_ prefix (e.g. MoveToActor -> K2_MoveToActor)
 			FString K2Name = FString::Printf(TEXT("K2_%s"), *ActualFunctionName);
 			Found = InClass->FindFunctionByName(FName(*K2Name));
 		}
 		return Found;
 	};
 
-	// === Step 1: Resolve target class if specified ===
 	if (!ActualTargetClass.IsEmpty())
 	{
-		// 1a) Direct FindObject
 		FunctionOwner = FindObject<UClass>(nullptr, *ActualTargetClass);
-
-		// 1b) Try with U prefix (e.g. "GameplayStatics" -> "UGameplayStatics")
 		if (!FunctionOwner)
 		{
 			FString WithU = FString::Printf(TEXT("U%s"), *ActualTargetClass);
@@ -705,21 +651,10 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 			}
 		}
 
-		// 1d) Well-known classes by short name (case insensitive)
 		if (!FunctionOwner)
 		{
-			struct FKnownClass { const TCHAR* Name; UClass* (*GetClass)(); };
-			static const FKnownClass KnownClasses[] = {
-				{ TEXT("KismetSystemLibrary"),      []() -> UClass* { return UKismetSystemLibrary::StaticClass(); } },
-				{ TEXT("KismetMathLibrary"),         []() -> UClass* { return UKismetMathLibrary::StaticClass(); } },
-				{ TEXT("GameplayStatics"),           []() -> UClass* { return UGameplayStatics::StaticClass(); } },
-				{ TEXT("KismetStringLibrary"),       []() -> UClass* { return UKismetStringLibrary::StaticClass(); } },
-				{ TEXT("KismetArrayLibrary"),        []() -> UClass* { return UKismetArrayLibrary::StaticClass(); } },
-				{ TEXT("KismetTextLibrary"),         []() -> UClass* { return UKismetTextLibrary::StaticClass(); } },
-				{ TEXT("AIBlueprintHelperLibrary"),  []() -> UClass* { return UAIBlueprintHelperLibrary::StaticClass(); } },
-			};
-
-			for (const FKnownClass& Known : KnownClasses)
+			TArray<FCommonLibraryClasses::FLibraryEntry> KnownClasses = FCommonLibraryClasses::GetAll();
+			for (const FCommonLibraryClasses::FLibraryEntry& Known : KnownClasses)
 			{
 				if (ActualTargetClass.Equals(Known.Name, ESearchCase::IgnoreCase))
 				{
@@ -729,7 +664,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 			}
 		}
 
-		// Try to find the function in the resolved class
 		if (FunctionOwner)
 		{
 			SearchedClasses.Add(FunctionOwner->GetName());
@@ -737,32 +671,22 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 		}
 	}
 
-	// === Step 2: Search common function libraries as fallback ===
 	if (!Function)
 	{
-		struct FLibraryEntry { UClass* Class; const TCHAR* Name; };
-		const FLibraryEntry CommonLibraries[] = {
-			{ UKismetSystemLibrary::StaticClass(),      TEXT("UKismetSystemLibrary") },
-			{ UKismetMathLibrary::StaticClass(),        TEXT("UKismetMathLibrary") },
-			{ UGameplayStatics::StaticClass(),          TEXT("UGameplayStatics") },
-			{ UKismetStringLibrary::StaticClass(),      TEXT("UKismetStringLibrary") },
-			{ UKismetArrayLibrary::StaticClass(),       TEXT("UKismetArrayLibrary") },
-			{ UKismetTextLibrary::StaticClass(),        TEXT("UKismetTextLibrary") },
-			{ UAIBlueprintHelperLibrary::StaticClass(), TEXT("UAIBlueprintHelperLibrary") },
-		};
+		TArray<FCommonLibraryClasses::FLibraryEntry> CommonLibraries = FCommonLibraryClasses::GetAll();
 
-		for (const FLibraryEntry& Entry : CommonLibraries)
+		for (const FCommonLibraryClasses::FLibraryEntry& Entry : CommonLibraries)
 		{
+			UClass* LibraryClass = Entry.GetClass();
 			if (!SearchedClasses.Contains(Entry.Name))
 			{
 				SearchedClasses.Add(Entry.Name);
-				Function = TryFindFunction(Entry.Class);
+				Function = TryFindFunction(LibraryClass);
 				if (Function) break;
 			}
 		}
 	}
 
-	// === Step 3: Global search across all UBlueprintFunctionLibrary subclasses ===
 	if (!Function)
 	{
 		for (TObjectIterator<UClass> It; It; ++It)
@@ -791,7 +715,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateCallFunctionNode(
 		return nullptr;
 	}
 
-	// Create the node
 	FGraphNodeCreator<UK2Node_CallFunction> NodeCreator(*Graph);
 	UK2Node_CallFunction* CallNode = NodeCreator.CreateNode();
 	CallNode->SetFromFunction(Function);
@@ -817,69 +740,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateBranchNode(
 	return BranchNode;
 }
 
-UEdGraphNode* FBlueprintGraphEditor::CreateEventNode(
-	UEdGraph* Graph,
-	const FString& EventName,
-	int32 PosX,
-	int32 PosY,
-	FString& OutError)
-{
-	if (EventName.IsEmpty())
-	{
-		OutError = TEXT("Event name is required");
-		return nullptr;
-	}
-
-	UBlueprint* Blueprint = FBlueprintEditorUtils::FindBlueprintForGraph(Graph);
-	if (!Blueprint)
-	{
-		OutError = TEXT("Could not find Blueprint for graph");
-		return nullptr;
-	}
-
-	// Find the event function
-	UFunction* EventFunc = nullptr;
-
-	// Check common events
-	if (EventName.Equals(TEXT("BeginPlay"), ESearchCase::IgnoreCase))
-	{
-		EventFunc = AActor::StaticClass()->FindFunctionByName(FName("ReceiveBeginPlay"));
-	}
-	else if (EventName.Equals(TEXT("Tick"), ESearchCase::IgnoreCase))
-	{
-		EventFunc = AActor::StaticClass()->FindFunctionByName(FName("ReceiveTick"));
-	}
-	else if (EventName.Equals(TEXT("EndPlay"), ESearchCase::IgnoreCase))
-	{
-		EventFunc = AActor::StaticClass()->FindFunctionByName(FName("ReceiveEndPlay"));
-	}
-	else
-	{
-		// Try to find in parent class
-		if (Blueprint->ParentClass)
-		{
-			EventFunc = Blueprint->ParentClass->FindFunctionByName(FName(*EventName));
-		}
-	}
-
-	if (!EventFunc)
-	{
-		OutError = FString::Printf(TEXT("Event '%s' not found. Common events: BeginPlay, Tick, EndPlay"), *EventName);
-		return nullptr;
-	}
-
-	// Create the event node
-	FGraphNodeCreator<UK2Node_Event> NodeCreator(*Graph);
-	UK2Node_Event* EventNode = NodeCreator.CreateNode();
-	EventNode->EventReference.SetFromField<UFunction>(EventFunc, false);
-	EventNode->bOverrideFunction = true;
-	EventNode->NodePosX = PosX;
-	EventNode->NodePosY = PosY;
-	NodeCreator.Finalize();
-
-	return EventNode;
-}
-
 UEdGraphNode* FBlueprintGraphEditor::CreateVariableGetNode(
 	UEdGraph* Graph,
 	UBlueprint* Blueprint,
@@ -900,7 +760,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateVariableGetNode(
 		return nullptr;
 	}
 
-	// Verify variable exists
 	FName VarName(*VariableName);
 	bool bFound = false;
 	for (const FBPVariableDescription& Var : Blueprint->NewVariables)
@@ -918,7 +777,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateVariableGetNode(
 		return nullptr;
 	}
 
-	// Create the node
 	FGraphNodeCreator<UK2Node_VariableGet> NodeCreator(*Graph);
 	UK2Node_VariableGet* GetNode = NodeCreator.CreateNode();
 	GetNode->VariableReference.SetSelfMember(VarName);
@@ -949,7 +807,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateVariableSetNode(
 		return nullptr;
 	}
 
-	// Verify variable exists
 	FName VarName(*VariableName);
 	bool bFound = false;
 	for (const FBPVariableDescription& Var : Blueprint->NewVariables)
@@ -967,7 +824,6 @@ UEdGraphNode* FBlueprintGraphEditor::CreateVariableSetNode(
 		return nullptr;
 	}
 
-	// Create the node
 	FGraphNodeCreator<UK2Node_VariableSet> NodeCreator(*Graph);
 	UK2Node_VariableSet* SetNode = NodeCreator.CreateNode();
 	SetNode->VariableReference.SetSelfMember(VarName);

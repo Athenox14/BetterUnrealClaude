@@ -18,9 +18,8 @@
  *
  * Supported Node Types:
  * - Flow: Branch, Sequence
- * - Functions: CallFunction (use search_nodes to discover functions)
+ * - Functions: CallFunction (use search_nodes to discover functions and events)
  * - Variables: VariableGet, VariableSet
- * - Events: Event (BeginPlay, Tick, EndPlay)
  *
  * Node ID System:
  * - Auto-generated descriptive IDs stored in NodeComment
@@ -55,10 +54,9 @@ public:
 	 * Supported NodeTypes:
 	 * - "CallFunction" - params: { function, target_class }
 	 * - "Branch" / "IfThenElse"
-	 * - "Event" - params: { event: "BeginPlay"|"Tick"|"EndPlay" }
 	 * - "VariableGet" / "VariableSet" - params: { variable }
 	 * - "Sequence" - params: { num_outputs }
-	 * Use CallFunction with search_nodes for math ops, PrintString, etc.
+	 * Use search_nodes + CallFunction for events, math ops, and other functions.
 	 *
 	 * @param Graph - Graph to add node to
 	 * @param NodeType - Type of node (case insensitive)
@@ -215,7 +213,6 @@ private:
 	// Node creation helpers
 	static UEdGraphNode* CreateCallFunctionNode(UEdGraph* Graph, const FString& FunctionName, const FString& TargetClass, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateBranchNode(UEdGraph* Graph, int32 PosX, int32 PosY, FString& OutError);
-	static UEdGraphNode* CreateEventNode(UEdGraph* Graph, const FString& EventName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, int32 PosX, int32 PosY, FString& OutError);
 	static UEdGraphNode* CreateSequenceNode(UEdGraph* Graph, int32 NumOutputs, int32 PosX, int32 PosY, FString& OutError);

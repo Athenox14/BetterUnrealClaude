@@ -8,21 +8,41 @@
 // Forward declarations
 class ACharacter;
 class UCharacterMovementComponent;
+class UCharacterConfigDataAsset;
+class UDataTable;
+struct FCharacterStatsRow;
 
 /**
  * MCP Tool: Character Management
  *
  * Query and modify ACharacter actors in the current level.
  * Provides access to movement parameters, skeletal mesh, animation, and components.
+ * Also handles character configuration DataAssets and stats DataTables.
  *
- * Query Operations:
+ * Character Query Operations:
  *   - list_characters: Find all ACharacter actors with optional filtering
  *   - get_character_info: Get detailed character info (mesh, anim, transform)
  *   - get_movement_params: Query CharacterMovementComponent properties
  *   - get_components: List all components attached to a character
  *
- * Modify Operations:
+ * Character Modify Operations:
  *   - set_movement_params: Modify movement values (speed, jump, friction, etc.)
+ *
+ * DataAsset Operations:
+ *   - create_character_data: Create new UCharacterConfigDataAsset
+ *   - query_character_data: Search character config assets
+ *   - get_character_data: Get details of a specific config
+ *   - update_character_data: Modify existing config
+ *
+ * DataTable Operations:
+ *   - create_stats_table: Create new stats DataTable
+ *   - query_stats_table: Get stats from DataTable
+ *   - add_stats_row: Add row to stats table
+ *   - update_stats_row: Modify existing row
+ *   - remove_stats_row: Delete row from table
+ *
+ * Application:
+ *   - apply_character_data: Apply config to a runtime character
  *
  * All character actors are identified by name or label.
  */
@@ -34,19 +54,19 @@ public:
 		FMCPToolInfo Info;
 		Info.Name = TEXT("character");
 		Info.Description = TEXT(
-			"Query and modify ACharacter actors in the current level.\n\n"
-			"Operations:\n"
-			"- 'list_characters': Find all characters with optional class filter\n"
-			"- 'get_character_info': Get mesh, animation, transform details\n"
-			"- 'get_movement_params': Query movement component properties\n"
-			"- 'set_movement_params': Modify movement values (speeds, jump, friction)\n"
-			"- 'get_components': List all components on a character\n\n"
-			"Characters are identified by actor name or label.\n\n"
-			"Movement properties include:\n"
-			"- max_walk_speed, max_acceleration, ground_friction\n"
-			"- jump_z_velocity, air_control, gravity_scale\n"
-			"- max_step_height, walkable_floor_angle\n"
-			"- braking_deceleration_walking, braking_friction"
+			"Consolidated character management: runtime actors and data assets.\n\n"
+			"Character Actor Operations:\n"
+			"- 'list_characters': Find all characters\n"
+			"- 'get_character_info': Get mesh, animation, transform\n"
+			"- 'get_movement_params': Query movement component\n"
+			"- 'set_movement_params': Modify movement values\n"
+			"- 'get_components': List all components\n\n"
+			"DataAsset Operations:\n"
+			"- 'create_character_data', 'query_character_data', 'get_character_data', 'update_character_data'\n\n"
+			"DataTable Operations:\n"
+			"- 'create_stats_table', 'query_stats_table', 'add_stats_row', 'update_stats_row', 'remove_stats_row'\n\n"
+			"Application:\n"
+			"- 'apply_character_data': Apply config to runtime character"
 		);
 		Info.Parameters = {
 			// Operation selector
@@ -89,7 +109,35 @@ public:
 
 			// For get_components filtering
 			FMCPToolParameter(TEXT("component_class"), TEXT("string"),
-				TEXT("Filter components by class name"), false)
+				TEXT("Filter components by class name"), false),
+
+			// DataAsset fields (from CharacterData tool)
+			FMCPToolParameter(TEXT("package_path"), TEXT("string"),
+				TEXT("[data] Package path for new assets (default: '/Game/Characters')"), false, TEXT("/Game/Characters")),
+			FMCPToolParameter(TEXT("asset_name"), TEXT("string"),
+				TEXT("[data] Name for new asset"), false),
+			FMCPToolParameter(TEXT("asset_path"), TEXT("string"),
+				TEXT("[data] Full path to existing asset"), false),
+			FMCPToolParameter(TEXT("table_path"), TEXT("string"),
+				TEXT("[data] Path to stats DataTable"), false),
+			FMCPToolParameter(TEXT("config_id"), TEXT("string"),
+				TEXT("[data] Unique config identifier"), false),
+			FMCPToolParameter(TEXT("display_name"), TEXT("string"),
+				TEXT("[data] Display name for config"), false),
+			FMCPToolParameter(TEXT("description"), TEXT("string"),
+				TEXT("[data] Config description"), false),
+			FMCPToolParameter(TEXT("skeletal_mesh"), TEXT("string"),
+				TEXT("[data] Path to skeletal mesh asset"), false),
+			FMCPToolParameter(TEXT("anim_blueprint"), TEXT("string"),
+				TEXT("[data] Path to animation blueprint class"), false),
+			FMCPToolParameter(TEXT("is_player_character"), TEXT("boolean"),
+				TEXT("[data] Whether this is a player character config"), false),
+			FMCPToolParameter(TEXT("apply_movement"), TEXT("boolean"),
+				TEXT("[apply] Apply movement stats (default: true)"), false, TEXT("true")),
+			FMCPToolParameter(TEXT("apply_mesh"), TEXT("boolean"),
+				TEXT("[apply] Apply skeletal mesh (default: false)"), false, TEXT("false")),
+			FMCPToolParameter(TEXT("apply_anim"), TEXT("boolean"),
+				TEXT("[apply] Apply animation blueprint (default: false)"), false, TEXT("false"))
 		};
 		// Mixed: query ops are read-only, set_movement_params is modifying
 		Info.Annotations = FMCPToolAnnotations::Modifying();
@@ -99,16 +147,41 @@ public:
 	virtual FMCPToolResult Execute(const TSharedRef<FJsonObject>& Params) override;
 
 private:
-	// Operation handlers
+	// Character Actor operation handlers
 	FMCPToolResult ExecuteListCharacters(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteGetCharacterInfo(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteGetMovementParams(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteSetMovementParams(const TSharedRef<FJsonObject>& Params);
 	FMCPToolResult ExecuteGetComponents(const TSharedRef<FJsonObject>& Params);
 
-	// Helper methods
+	// DataAsset operation handlers (from CharacterData)
+	FMCPToolResult ExecuteCreateCharacterData(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteQueryCharacterData(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteGetCharacterData(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteUpdateCharacterData(const TSharedRef<FJsonObject>& Params);
+
+	// DataTable operation handlers (from CharacterData)
+	FMCPToolResult ExecuteCreateStatsTable(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteQueryStatsTable(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteAddStatsRow(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteUpdateStatsRow(const TSharedRef<FJsonObject>& Params);
+	FMCPToolResult ExecuteRemoveStatsRow(const TSharedRef<FJsonObject>& Params);
+
+	// Application (from CharacterData)
+	FMCPToolResult ExecuteApplyCharacterData(const TSharedRef<FJsonObject>& Params);
+
+	// Helper methods - Character Actors
 	ACharacter* FindCharacterByName(UWorld* World, const FString& NameOrLabel, FString& OutError);
 	TSharedPtr<FJsonObject> CharacterToJson(ACharacter* Character, bool bIncludeMovement = false);
 	TSharedPtr<FJsonObject> MovementComponentToJson(UCharacterMovementComponent* Movement);
 	TSharedPtr<FJsonObject> ComponentToJson(UActorComponent* Component);
+
+	// Helper methods - DataAssets (from CharacterData)
+	UCharacterConfigDataAsset* LoadCharacterConfig(const FString& Path, FString& OutError);
+	UDataTable* LoadStatsTable(const FString& Path, FString& OutError);
+	bool SaveAsset(UObject* Asset, FString& OutError);
+	TSharedPtr<FJsonObject> ConfigToJson(UCharacterConfigDataAsset* Config);
+	TSharedPtr<FJsonObject> StatsRowToJson(const FCharacterStatsRow& Row, const FName& RowName);
+	void PopulateConfigFromParams(UCharacterConfigDataAsset* Config, const TSharedRef<FJsonObject>& Params);
+	void PopulateStatsRowFromParams(FCharacterStatsRow& Row, const TSharedRef<FJsonObject>& Params);
 };

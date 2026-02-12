@@ -19,7 +19,6 @@
 
 FMCPToolResult FMCPTool_EnhancedInput::Execute(const TSharedRef<FJsonObject>& Params)
 {
-	// Extract operation
 	FString Operation;
 	TOptional<FMCPToolResult> Error;
 	if (!ExtractRequiredString(Params, TEXT("operation"), Operation, Error))
@@ -27,7 +26,6 @@ FMCPToolResult FMCPTool_EnhancedInput::Execute(const TSharedRef<FJsonObject>& Pa
 		return Error.GetValue();
 	}
 
-	// Route to appropriate handler
 	if (Operation == TEXT("create_input_action"))
 	{
 		return ExecuteCreateInputAction(Params);
@@ -67,10 +65,6 @@ FMCPToolResult FMCPTool_EnhancedInput::Execute(const TSharedRef<FJsonObject>& Pa
 		*Operation));
 }
 
-// ============================================================================
-// Asset Creation Operations
-// ============================================================================
-
 FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateInputAction(const TSharedRef<FJsonObject>& Params)
 {
 	// Extract parameters
@@ -84,14 +78,12 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateInputAction(const TSharedRef
 	FString PackagePath = ExtractOptionalString(Params, TEXT("package_path"), TEXT("/Game/Input"));
 	FString ValueTypeStr = ExtractOptionalString(Params, TEXT("value_type"), TEXT("Digital"));
 
-	// Validate path
 	FString ValidationError;
 	if (!FMCPParamValidator::ValidateBlueprintPath(PackagePath, ValidationError))
 	{
 		return FMCPToolResult::Error(ValidationError);
 	}
 
-	// Parse value type
 	EInputActionValueType ValueType = EInputActionValueType::Boolean;
 	if (ValueTypeStr == TEXT("Digital") || ValueTypeStr == TEXT("Boolean") || ValueTypeStr == TEXT("Bool"))
 	{
@@ -115,7 +107,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateInputAction(const TSharedRef
 			TEXT("Invalid value_type: %s. Valid types: Digital, Axis1D, Axis2D, Axis3D"), *ValueTypeStr));
 	}
 
-	// Create package
 	FString FullPath = PackagePath / Name;
 	UPackage* Package = CreatePackage(*FullPath);
 	if (!Package)
@@ -123,17 +114,14 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateInputAction(const TSharedRef
 		return FMCPToolResult::Error(FString::Printf(TEXT("Failed to create package: %s"), *FullPath));
 	}
 
-	// Create InputAction
 	UInputAction* NewAction = NewObject<UInputAction>(Package, FName(*Name), RF_Public | RF_Standalone);
 	if (!NewAction)
 	{
 		return FMCPToolResult::Error(TEXT("Failed to create InputAction"));
 	}
 
-	// Set value type
 	NewAction->ValueType = ValueType;
 
-	// Mark package dirty and save
 	Package->MarkPackageDirty();
 	FString SaveError;
 	if (!SaveAsset(NewAction, SaveError))
@@ -141,12 +129,10 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateInputAction(const TSharedRef
 		return FMCPToolResult::Error(SaveError);
 	}
 
-	// Notify asset registry
 	FAssetRegistryModule::AssetCreated(NewAction);
 
 	UE_LOG(LogUnrealClaude, Log, TEXT("Created InputAction: %s (ValueType: %s)"), *FullPath, *ValueTypeStr);
 
-	// Build result
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
 	ResultData->SetStringField(TEXT("asset_path"), NewAction->GetPathName());
 	ResultData->SetStringField(TEXT("name"), Name);
@@ -176,7 +162,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateMappingContext(const TShared
 		return FMCPToolResult::Error(ValidationError);
 	}
 
-	// Create package
 	FString FullPath = PackagePath / Name;
 	UPackage* Package = CreatePackage(*FullPath);
 	if (!Package)
@@ -215,10 +200,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteCreateMappingContext(const TShared
 		ResultData);
 }
 
-// ============================================================================
-// Mapping Operations
-// ============================================================================
-
 FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddMapping(const TSharedRef<FJsonObject>& Params)
 {
 	// Extract parameters
@@ -238,7 +219,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddMapping(const TSharedRef<FJsonO
 		return Error.GetValue();
 	}
 
-	// Load assets
 	FString LoadError;
 	UInputMappingContext* Context = LoadMappingContext(ContextPath, LoadError);
 	if (!Context)
@@ -252,7 +232,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddMapping(const TSharedRef<FJsonO
 		return FMCPToolResult::Error(LoadError);
 	}
 
-	// Parse key
 	FString KeyError;
 	FKey Key = ParseKey(KeyName, KeyError);
 	if (!Key.IsValid())
@@ -263,7 +242,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddMapping(const TSharedRef<FJsonO
 	// Add mapping using MapKey
 	FEnhancedActionKeyMapping& NewMapping = Context->MapKey(Action, Key);
 
-	// Mark dirty and save
 	Context->MarkPackageDirty();
 	FString SaveError;
 	if (!SaveAsset(Context, SaveError))
@@ -327,7 +305,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteRemoveMapping(const TSharedRef<FJs
 	// Remove mapping
 	Context->UnmapKey(Mappings[MappingIndex].Action, Mappings[MappingIndex].Key);
 
-	// Mark dirty and save
 	Context->MarkPackageDirty();
 	FString SaveError;
 	if (!SaveAsset(Context, SaveError))
@@ -369,7 +346,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddTrigger(const TSharedRef<FJsonO
 		return Error.GetValue();
 	}
 
-	// Load assets
 	FString LoadError;
 	UInputMappingContext* Context = LoadMappingContext(ContextPath, LoadError);
 	if (!Context)
@@ -393,7 +369,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddTrigger(const TSharedRef<FJsonO
 
 	TArray<FEnhancedActionKeyMapping>& Mappings = const_cast<TArray<FEnhancedActionKeyMapping>&>(Context->GetMappings());
 
-	// Create trigger
 	FString TriggerError;
 	UInputTrigger* Trigger = CreateTrigger(TriggerType, Params, TriggerError);
 	if (!Trigger)
@@ -404,7 +379,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddTrigger(const TSharedRef<FJsonO
 	// Add trigger to mapping
 	Mappings[MappingIndex].Triggers.Add(Trigger);
 
-	// Mark dirty and save
 	Context->MarkPackageDirty();
 	FString SaveError;
 	if (!SaveAsset(Context, SaveError))
@@ -446,7 +420,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddModifier(const TSharedRef<FJson
 		return Error.GetValue();
 	}
 
-	// Load assets
 	FString LoadError;
 	UInputMappingContext* Context = LoadMappingContext(ContextPath, LoadError);
 	if (!Context)
@@ -470,7 +443,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddModifier(const TSharedRef<FJson
 
 	TArray<FEnhancedActionKeyMapping>& Mappings = const_cast<TArray<FEnhancedActionKeyMapping>&>(Context->GetMappings());
 
-	// Create modifier
 	FString ModifierError;
 	UInputModifier* Modifier = CreateModifier(ModifierType, Params, ModifierError);
 	if (!Modifier)
@@ -481,7 +453,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddModifier(const TSharedRef<FJson
 	// Add modifier to mapping
 	Mappings[MappingIndex].Modifiers.Add(Modifier);
 
-	// Mark dirty and save
 	Context->MarkPackageDirty();
 	FString SaveError;
 	if (!SaveAsset(Context, SaveError))
@@ -503,10 +474,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteAddModifier(const TSharedRef<FJson
 		FString::Printf(TEXT("Added %s modifier to %s"), *ModifierType, *Action->GetName()),
 		ResultData);
 }
-
-// ============================================================================
-// Query Operations
-// ============================================================================
 
 FMCPToolResult FMCPTool_EnhancedInput::ExecuteQueryContext(const TSharedRef<FJsonObject>& Params)
 {
@@ -562,10 +529,6 @@ FMCPToolResult FMCPTool_EnhancedInput::ExecuteQueryAction(const TSharedRef<FJson
 		FString::Printf(TEXT("Queried action '%s'"), *Action->GetName()),
 		ResultData);
 }
-
-// ============================================================================
-// Helper Methods
-// ============================================================================
 
 UInputAction* FMCPTool_EnhancedInput::LoadInputAction(const FString& Path, FString& OutError)
 {
@@ -909,10 +872,6 @@ UInputModifier* FMCPTool_EnhancedInput::CreateModifier(const FString& ModifierTy
 
 	return Modifier;
 }
-
-// ============================================================================
-// JSON Conversion Helpers
-// ============================================================================
 
 TSharedPtr<FJsonObject> FMCPTool_EnhancedInput::InputActionToJson(UInputAction* Action)
 {

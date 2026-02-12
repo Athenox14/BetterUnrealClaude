@@ -5,31 +5,21 @@
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeConstants.h"
 
-// Include all tool implementations
-#include "Tools/MCPTool_SpawnActor.h"
-#include "Tools/MCPTool_GetLevelActors.h"
+#include "Tools/MCPTool_Actor.h"
 #include "Tools/MCPTool_SetProperty.h"
-#include "Tools/MCPTool_RunConsoleCommand.h"
-#include "Tools/MCPTool_DeleteActors.h"
-#include "Tools/MCPTool_MoveActor.h"
-#include "Tools/MCPTool_GetOutputLog.h"
+#include "Tools/MCPTool_Editor.h"
 #include "Tools/MCPTool_ExecuteScript.h"
 #include "Tools/MCPTool_CaptureViewport.h"
 #include "Tools/MCPTool_BlueprintQuery.h"
 #include "Tools/MCPTool_BlueprintModify.h"
 #include "Tools/MCPTool_AnimBlueprintModify.h"
-#include "Tools/MCPTool_AssetSearch.h"
-#include "Tools/MCPTool_AssetRelations.h"
 #include "Tools/MCPTool_EnhancedInput.h"
 #include "Tools/MCPTool_Character.h"
-#include "Tools/MCPTool_CharacterData.h"
 #include "Tools/MCPTool_Material.h"
 #include "Tools/MCPTool_Asset.h"
 #include "Tools/MCPTool_OpenLevel.h"
-#include "Tools/MCPTool_SearchNodes.h"
 #include "Tools/MCPTool_BehaviorTreeModify.h"
 
-// Unified task queue tool
 #include "Tools/MCPTool_Task.h"
 
 FMCPToolRegistry::FMCPToolRegistry()
@@ -63,54 +53,31 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 {
 	UE_LOG(LogUnrealClaude, Log, TEXT("Registering MCP tools..."));
 
-	// Register all built-in tools
-	RegisterTool(MakeShared<FMCPTool_SpawnActor>());
-	RegisterTool(MakeShared<FMCPTool_GetLevelActors>());
+	RegisterTool(MakeShared<FMCPTool_Actor>());
 	RegisterTool(MakeShared<FMCPTool_SetProperty>());
-	RegisterTool(MakeShared<FMCPTool_RunConsoleCommand>());
-	RegisterTool(MakeShared<FMCPTool_DeleteActors>());
-	RegisterTool(MakeShared<FMCPTool_MoveActor>());
-	RegisterTool(MakeShared<FMCPTool_GetOutputLog>());
+	RegisterTool(MakeShared<FMCPTool_Editor>());
 
-	// Script execution (includes history + cleanup operations)
 	RegisterTool(MakeShared<FMCPTool_ExecuteScript>());
 
-	// Viewport capture
 	RegisterTool(MakeShared<FMCPTool_CaptureViewport>());
 
-	// Blueprint tools
 	RegisterTool(MakeShared<FMCPTool_BlueprintQuery>());
 	RegisterTool(MakeShared<FMCPTool_BlueprintModify>());
 	RegisterTool(MakeShared<FMCPTool_AnimBlueprintModify>());
 
-	// Asset tools
-	RegisterTool(MakeShared<FMCPTool_AssetSearch>());
-	RegisterTool(MakeShared<FMCPTool_AssetRelations>());
-
-	// Enhanced Input tools
 	RegisterTool(MakeShared<FMCPTool_EnhancedInput>());
 
-	// Character tools
 	RegisterTool(MakeShared<FMCPTool_Character>());
-	RegisterTool(MakeShared<FMCPTool_CharacterData>());
 
-	// Material and Asset tools
 	RegisterTool(MakeShared<FMCPTool_Material>());
 	RegisterTool(MakeShared<FMCPTool_Asset>());
 
-	// Level management tools
 	RegisterTool(MakeShared<FMCPTool_OpenLevel>());
 
-	// Node search and Behavior Tree tools
-	RegisterTool(MakeShared<FMCPTool_SearchNodes>());
 	RegisterTool(MakeShared<FMCPTool_BehaviorTreeModify>());
 
-	// Create and register async task queue tools
-	// Task queue takes a raw pointer since the registry always outlives it
 	TaskQueue = MakeShared<FMCPTaskQueue>(this);
 
-	// Wire up execute_script to use the task queue for async execution
-	// This allows script execution to handle permission dialogs without timing out
 	if (TSharedPtr<IMCPTool>* ExecuteScriptToolPtr = Tools.Find(TEXT("execute_script")))
 	{
 		if (FMCPTool_ExecuteScript* ExecuteScriptTool = static_cast<FMCPTool_ExecuteScript*>(ExecuteScriptToolPtr->Get()))
@@ -195,7 +162,6 @@ FMCPToolResult FMCPToolRegistry::ExecuteTool(const FString& ToolName, const TSha
 
 	UE_LOG(LogUnrealClaude, Log, TEXT("Executing MCP tool: %s"), *ToolName);
 
-	// Execute on game thread to ensure safe access to engine objects
 	FMCPToolResult Result;
 
 	if (IsInGameThread())
@@ -204,14 +170,11 @@ FMCPToolResult FMCPToolRegistry::ExecuteTool(const FString& ToolName, const TSha
 	}
 	else
 	{
-		// If called from non-game thread, dispatch to game thread and wait with timeout
-		// Use shared pointers for all state to avoid use-after-free if timeout occurs
 		TSharedPtr<FMCPToolResult> SharedResult = MakeShared<FMCPToolResult>();
 		TSharedPtr<FEvent, ESPMode::ThreadSafe> CompletionEvent = MakeShareable(FPlatformProcess::GetSynchEventFromPool(),
 			[](FEvent* Event) { FPlatformProcess::ReturnSynchEventToPool(Event); });
 		TSharedPtr<TAtomic<bool>, ESPMode::ThreadSafe> bTaskCompleted = MakeShared<TAtomic<bool>, ESPMode::ThreadSafe>(false);
 
-		// Capture shared pointers by value so lambda keeps them alive
 		AsyncTask(ENamedThreads::GameThread, [SharedResult, FoundTool, Params, CompletionEvent, bTaskCompleted]()
 		{
 			*SharedResult = (*FoundTool)->Execute(Params);
@@ -219,7 +182,6 @@ FMCPToolResult FMCPToolRegistry::ExecuteTool(const FString& ToolName, const TSha
 			CompletionEvent->Trigger();
 		});
 
-		// Wait with timeout to prevent indefinite hangs
 		const uint32 TimeoutMs = UnrealClaudeConstants::MCPServer::GameThreadTimeoutMs;
 		const bool bSignaled = CompletionEvent->Wait(TimeoutMs);
 
@@ -229,7 +191,6 @@ FMCPToolResult FMCPToolRegistry::ExecuteTool(const FString& ToolName, const TSha
 			return FMCPToolResult::Error(FString::Printf(TEXT("Tool execution timed out after %d seconds"), TimeoutMs / 1000));
 		}
 
-		// Copy result from shared storage
 		Result = *SharedResult;
 	}
 

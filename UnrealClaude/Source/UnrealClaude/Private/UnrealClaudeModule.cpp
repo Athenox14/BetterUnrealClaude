@@ -35,7 +35,6 @@ void FUnrealClaudeModule::StartupModule()
 
 	PluginCommands = MakeShareable(new FUICommandList);
 
-	// Map OpenClaudePanel -> launch Claude CLI in a new terminal window
 	PluginCommands->MapAction(
 		FUnrealClaudeCommands::Get().OpenClaudePanel,
 		FExecuteAction::CreateLambda([]()
@@ -48,14 +47,11 @@ void FUnrealClaudeModule::StartupModule()
 		})
 	);
 
-	// Register menus after engine init
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FUnrealClaudeModule::RegisterMenus));
 
-	// Bind keyboard shortcuts to the Level Editor
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 	LevelEditorModule.GetGlobalLevelEditorActions()->Append(PluginCommands.ToSharedRef());
 
-	// Check Claude availability
 	if (FClaudeCodeRunner::IsClaudeAvailable())
 	{
 		UE_LOG(LogUnrealClaude, Log, TEXT("Claude CLI found at: %s"), *FClaudeCodeRunner::GetClaudePath());
@@ -65,13 +61,10 @@ void FUnrealClaudeModule::StartupModule()
 		UE_LOG(LogUnrealClaude, Warning, TEXT("Claude CLI not found. Please install with: npm install -g @anthropic-ai/claude-code"));
 	}
 
-	// Start MCP Server
 	StartMCPServer();
 
-	// Initialize project context (async, will gather in background)
 	FProjectContextManager::Get().RefreshContext();
 
-	// Initialize script execution manager (creates script directories)
 	FScriptExecutionManager::Get();
 }
 
@@ -79,7 +72,6 @@ void FUnrealClaudeModule::ShutdownModule()
 {
 	UE_LOG(LogUnrealClaude, Log, TEXT("UnrealClaude module shutting down"));
 
-	// Stop MCP Server
 	StopMCPServer();
 
 	UToolMenus::UnRegisterStartupCallback(this);
@@ -100,10 +92,8 @@ bool FUnrealClaudeModule::IsAvailable()
 
 void FUnrealClaudeModule::RegisterMenus()
 {
-	// Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
 	FToolMenuOwnerScoped OwnerScoped(this);
 
-	// Add to the main menu bar under Tools
 	{
 		UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.MainMenu.Tools");
 		FToolMenuSection& Section = Menu->FindOrAddSection("UnrealClaude");
@@ -118,7 +108,6 @@ void FUnrealClaudeModule::RegisterMenus()
 
 	}
 
-	// Add to the toolbar
 	{
 		UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
 		FToolMenuSection& Section = ToolbarMenu->FindOrAddSection("UnrealClaude");
@@ -138,8 +127,6 @@ void FUnrealClaudeModule::UnregisterMenus()
 	UToolMenus::UnregisterOwner(this);
 }
 
-// ========== Launch Claude Terminal ==========
-
 void FUnrealClaudeModule::LaunchClaudeTerminal()
 {
 #if PLATFORM_WINDOWS
@@ -152,7 +139,6 @@ void FUnrealClaudeModule::LaunchClaudeTerminal()
 
 	FString Args = TEXT("--verbose --dangerously-skip-permissions ");
 
-	// MCP config
 	FString PluginDir;
 	FString EnginePluginPath = FPaths::Combine(FPaths::EnginePluginsDir(), TEXT("UnrealClaude"));
 	FString ProjectPluginPath = FPaths::Combine(FPaths::ProjectPluginsDir(), TEXT("UnrealClaude"));
@@ -186,7 +172,6 @@ void FUnrealClaudeModule::LaunchClaudeTerminal()
 
 	Args += TEXT("--allowedTools \"mcp__unrealclaude__*\" ");
 
-	// cmd.exe /K keeps the prompt open if Claude exits
 	FString Command = FString::Printf(TEXT("cmd.exe /K \"\"%s\" %s\""), *ClaudePath, *Args);
 	FString WorkingDir = FPaths::ProjectDir();
 
@@ -232,7 +217,6 @@ uint32 FUnrealClaudeModule::GetMCPServerPort()
 		return CachedPort;
 	}
 
-	// Try to read port from config.json at the plugin root
 	FString ConfigPath = FPaths::Combine(
 		FPaths::ProjectPluginsDir(), TEXT("UnrealClaude"), TEXT("config.json"));
 

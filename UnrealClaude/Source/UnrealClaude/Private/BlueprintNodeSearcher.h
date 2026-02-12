@@ -39,6 +39,21 @@ struct FNodeSearchResult
 };
 
 /**
+ * Common Blueprint function library classes
+ * Centralized list to avoid duplication across multiple files
+ */
+struct UNREALCLAUDE_API FCommonLibraryClasses
+{
+	struct FLibraryEntry
+	{
+		const TCHAR* Name;
+		UClass* (*GetClass)();
+	};
+
+	static TArray<FLibraryEntry> GetAll();
+};
+
+/**
  * Blueprint node discovery and introspection
  *
  * Scans loaded UBlueprintFunctionLibrary classes and other Blueprint-callable

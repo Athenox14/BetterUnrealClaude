@@ -18,41 +18,40 @@ FMCPToolInfo FMCPTool_Asset::GetInfo() const
 {
 	FMCPToolInfo Info;
 	Info.Name = TEXT("asset");
-	Info.Description = TEXT("Generic asset operations: set properties, save, and query assets in Content Browser");
+	Info.Description = TEXT("Generic asset operations: set properties, save, search, and query asset relationships");
 
-	// Parameters
 	Info.Parameters.Add(FMCPToolParameter(TEXT("operation"), TEXT("string"),
-		TEXT("Operation: set_asset_property, save_asset, get_asset_info, list_assets"), true));
+		TEXT("Operation: set_asset_property, save_asset, get_asset_info, search, dependencies, referencers"), true));
 
-	// Common params
 	Info.Parameters.Add(FMCPToolParameter(TEXT("asset_path"), TEXT("string"),
 		TEXT("Asset path (e.g., /Game/Characters/MyMesh)"), false));
 
-	// set_asset_property params
 	Info.Parameters.Add(FMCPToolParameter(TEXT("property"), TEXT("string"),
 		TEXT("Property path (e.g., Materials.0.MaterialInterface, bEnableGravity)"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("value"), TEXT("any"),
 		TEXT("Value to set (type must match property type)"), false));
 
-	// save_asset params
 	Info.Parameters.Add(FMCPToolParameter(TEXT("save"), TEXT("boolean"),
 		TEXT("Actually save to disk (default: true)"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("mark_dirty"), TEXT("boolean"),
 		TEXT("Mark the asset as dirty (default: true if save is false)"), false));
 
-	// get_asset_info params
 	Info.Parameters.Add(FMCPToolParameter(TEXT("include_properties"), TEXT("boolean"),
 		TEXT("Include editable property list (default: false)"), false));
 
-	// list_assets params
-	Info.Parameters.Add(FMCPToolParameter(TEXT("directory"), TEXT("string"),
-		TEXT("Directory to list (e.g., /Game/Characters/)"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("class_filter"), TEXT("string"),
-		TEXT("Filter by class name (e.g., SkeletalMesh, StaticMesh, Material)"), false));
-	Info.Parameters.Add(FMCPToolParameter(TEXT("recursive"), TEXT("boolean"),
-		TEXT("Search recursively (default: false)"), false));
+		TEXT("[search] Filter by class name (e.g., SkeletalMesh, StaticMesh, Material)"), false));
+	Info.Parameters.Add(FMCPToolParameter(TEXT("path_filter"), TEXT("string"),
+		TEXT("[search] Path prefix to search within (default: /Game/)"), false));
+	Info.Parameters.Add(FMCPToolParameter(TEXT("name_pattern"), TEXT("string"),
+		TEXT("[search] Substring to match in asset names"), false));
 	Info.Parameters.Add(FMCPToolParameter(TEXT("limit"), TEXT("integer"),
-		TEXT("Maximum results (1-1000, default: 25)"), false));
+		TEXT("[search/dependencies/referencers] Maximum results (1-1000, default: 25)"), false));
+	Info.Parameters.Add(FMCPToolParameter(TEXT("offset"), TEXT("integer"),
+		TEXT("[search/dependencies/referencers] Pagination offset (default: 0)"), false));
+
+	Info.Parameters.Add(FMCPToolParameter(TEXT("include_soft"), TEXT("boolean"),
+		TEXT("[dependencies/referencers] Include soft references (default: true)"), false));
 
 	Info.Annotations = FMCPToolAnnotations::Modifying();
 
@@ -82,13 +81,21 @@ FMCPToolResult FMCPTool_Asset::Execute(const TSharedRef<FJsonObject>& Params)
 	{
 		return ExecuteGetAssetInfo(Params);
 	}
-	else if (Operation == TEXT("list_assets"))
+	else if (Operation == TEXT("search"))
 	{
-		return ExecuteListAssets(Params);
+		return ExecuteSearch(Params);
+	}
+	else if (Operation == TEXT("dependencies"))
+	{
+		return ExecuteDependencies(Params);
+	}
+	else if (Operation == TEXT("referencers"))
+	{
+		return ExecuteReferencers(Params);
 	}
 
 	return FMCPToolResult::Error(FString::Printf(
-		TEXT("Unknown operation: %s. Valid: set_asset_property, save_asset, get_asset_info, list_assets"),
+		TEXT("Unknown operation: %s. Valid: set_asset_property, save_asset, get_asset_info, search, dependencies, referencers"),
 		*Operation));
 }
 
@@ -121,7 +128,6 @@ FMCPToolResult FMCPTool_Asset::ExecuteSetAssetProperty(const TSharedRef<FJsonObj
 	}
 	TSharedPtr<FJsonValue> Value = Params->TryGetField(TEXT("value"));
 
-	// Load the asset
 	FString LoadError;
 	UObject* Asset = LoadAssetByPath(AssetPath, LoadError);
 	if (!Asset)
@@ -129,18 +135,15 @@ FMCPToolResult FMCPTool_Asset::ExecuteSetAssetProperty(const TSharedRef<FJsonObj
 		return FMCPToolResult::Error(LoadError);
 	}
 
-	// Set the property
 	FString PropertyError;
 	if (!SetPropertyFromJson(Asset, PropertyPath, Value, PropertyError))
 	{
 		return FMCPToolResult::Error(PropertyError);
 	}
 
-	// Mark dirty and notify
 	Asset->PostEditChange();
 	Asset->MarkPackageDirty();
 
-	// Build result
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
 	ResultData->SetStringField(TEXT("asset_path"), AssetPath);
 	ResultData->SetStringField(TEXT("property"), PropertyPath);
@@ -166,20 +169,18 @@ FMCPToolResult FMCPTool_Asset::ExecuteSaveAsset(const TSharedRef<FJsonObject>& P
 		return Error.GetValue();
 	}
 
-	// Get options
 	bool bSave = true;
 	if (Params->HasField(TEXT("save")))
 	{
 		bSave = Params->GetBoolField(TEXT("save"));
 	}
 
-	bool bMarkDirty = !bSave; // Default to marking dirty if not saving
+	bool bMarkDirty = !bSave;
 	if (Params->HasField(TEXT("mark_dirty")))
 	{
 		bMarkDirty = Params->GetBoolField(TEXT("mark_dirty"));
 	}
 
-	// Load the asset
 	FString LoadError;
 	UObject* Asset = LoadAssetByPath(AssetPath, LoadError);
 	if (!Asset)
@@ -190,14 +191,12 @@ FMCPToolResult FMCPTool_Asset::ExecuteSaveAsset(const TSharedRef<FJsonObject>& P
 	bool bWasSaved = false;
 	bool bWasMarkedDirty = false;
 
-	// Mark dirty if requested
 	if (bMarkDirty)
 	{
 		Asset->MarkPackageDirty();
 		bWasMarkedDirty = true;
 	}
 
-	// Save if requested
 	if (bSave)
 	{
 		UPackage* Package = Asset->GetOutermost();
@@ -217,7 +216,6 @@ FMCPToolResult FMCPTool_Asset::ExecuteSaveAsset(const TSharedRef<FJsonObject>& P
 		}
 	}
 
-	// Build result
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
 	ResultData->SetStringField(TEXT("asset_path"), AssetPath);
 	ResultData->SetBoolField(TEXT("saved"), bWasSaved);
@@ -250,7 +248,6 @@ FMCPToolResult FMCPTool_Asset::ExecuteGetAssetInfo(const TSharedRef<FJsonObject>
 		bIncludeProperties = Params->GetBoolField(TEXT("include_properties"));
 	}
 
-	// Load the asset
 	FString LoadError;
 	UObject* Asset = LoadAssetByPath(AssetPath, LoadError);
 	if (!Asset)
@@ -260,7 +257,6 @@ FMCPToolResult FMCPTool_Asset::ExecuteGetAssetInfo(const TSharedRef<FJsonObject>
 
 	TSharedPtr<FJsonObject> ResultData = BuildAssetInfoJson(Asset);
 
-	// Add properties if requested
 	if (bIncludeProperties)
 	{
 		ResultData->SetArrayField(TEXT("properties"), GetAssetProperties(Asset, true));
@@ -272,85 +268,254 @@ FMCPToolResult FMCPTool_Asset::ExecuteGetAssetInfo(const TSharedRef<FJsonObject>
 	);
 }
 
-FMCPToolResult FMCPTool_Asset::ExecuteListAssets(const TSharedRef<FJsonObject>& Params)
+FMCPToolResult FMCPTool_Asset::ExecuteSearch(const TSharedRef<FJsonObject>& Params)
 {
-	FString Directory = TEXT("/Game/");
-	if (Params->HasField(TEXT("directory")))
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FString ClassFilter = ExtractOptionalString(Params, TEXT("class_filter"));
+	FString PathFilter = ExtractOptionalString(Params, TEXT("path_filter"), TEXT("/Game/"));
+	FString NamePattern = ExtractOptionalString(Params, TEXT("name_pattern"));
+	int32 Limit = FMath::Clamp(ExtractOptionalNumber<int32>(Params, TEXT("limit"), 25), 1, 1000);
+	int32 Offset = FMath::Max(0, ExtractOptionalNumber<int32>(Params, TEXT("offset"), 0));
+
+	FARFilter Filter;
+	Filter.bRecursivePaths = true;
+	Filter.bRecursiveClasses = true;
+
+	if (!PathFilter.IsEmpty())
 	{
-		Directory = Params->GetStringField(TEXT("directory"));
+		Filter.PackagePaths.Add(FName(*PathFilter));
 	}
 
+	if (!ClassFilter.IsEmpty())
+	{
+		FString ClassPath = ClassFilter;
+		if (!ClassPath.StartsWith(TEXT("/")))
+		{
+			UClass* FoundClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *ClassFilter));
+
+			if (!FoundClass)
+			{
+				FoundClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/CoreUObject.%s"), *ClassFilter));
+			}
+
+			if (!FoundClass)
+			{
+				FoundClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Niagara.%s"), *ClassFilter));
+			}
+
+			if (!FoundClass)
+			{
+				FoundClass = FindObject<UClass>(nullptr, *ClassFilter);
+			}
+
+			if (FoundClass)
+			{
+				ClassPath = FoundClass->GetClassPathName().ToString();
+			}
+			else
+			{
+				ClassPath = FString::Printf(TEXT("/Script/Engine.%s"), *ClassFilter);
+			}
+		}
+
+		Filter.ClassPaths.Add(FTopLevelAssetPath(ClassPath));
+	}
+
+	TArray<FAssetData> AllAssets;
+	AssetRegistry.GetAssets(Filter, AllAssets);
+
+	TArray<FAssetData> FilteredAssets;
+	if (!NamePattern.IsEmpty())
+	{
+		for (const FAssetData& Asset : AllAssets)
+		{
+			if (Asset.AssetName.ToString().Contains(NamePattern, ESearchCase::IgnoreCase))
+			{
+				FilteredAssets.Add(Asset);
+			}
+		}
+	}
+	else
+	{
+		FilteredAssets = MoveTemp(AllAssets);
+	}
+
+	int32 Total = FilteredAssets.Num();
+	int32 StartIndex = FMath::Min(Offset, Total);
+	int32 EndIndex = FMath::Min(StartIndex + Limit, Total);
+	int32 Count = EndIndex - StartIndex;
+	bool bHasMore = EndIndex < Total;
+
+	TArray<TSharedPtr<FJsonValue>> AssetsArray;
+	for (int32 i = StartIndex; i < EndIndex; ++i)
+	{
+		AssetsArray.Add(MakeShared<FJsonValueObject>(AssetDataToJson(FilteredAssets[i])));
+	}
+
+	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
+	ResultData->SetArrayField(TEXT("assets"), AssetsArray);
+	ResultData->SetNumberField(TEXT("count"), Count);
+	ResultData->SetNumberField(TEXT("total"), Total);
+	ResultData->SetNumberField(TEXT("offset"), StartIndex);
+	ResultData->SetNumberField(TEXT("limit"), Limit);
+	ResultData->SetBoolField(TEXT("hasMore"), bHasMore);
+	if (bHasMore)
+	{
+		ResultData->SetNumberField(TEXT("nextOffset"), EndIndex);
+	}
+
+	FString Message;
+	if (Total == 0)
+	{
+		Message = TEXT("No assets found matching the search criteria");
+	}
+	else if (Count == Total)
+	{
+		Message = FString::Printf(TEXT("Found %d asset%s"), Total, Total == 1 ? TEXT("") : TEXT("s"));
+	}
+	else
+	{
+		Message = FString::Printf(TEXT("Found %d assets (showing %d-%d of %d total)"),
+			Count, StartIndex + 1, EndIndex, Total);
+	}
+
+	return FMCPToolResult::Success(Message, ResultData);
+}
+
+FMCPToolResult FMCPTool_Asset::ExecuteDependencies(const TSharedRef<FJsonObject>& Params)
+{
+	return ExecuteRelations(Params, true);
+}
+
+FMCPToolResult FMCPTool_Asset::ExecuteReferencers(const TSharedRef<FJsonObject>& Params)
+{
+	return ExecuteRelations(Params, false);
+}
+
+FMCPToolResult FMCPTool_Asset::ExecuteRelations(const TSharedRef<FJsonObject>& Params, bool bIsDependencies)
+{
+	FString AssetPath;
 	TOptional<FMCPToolResult> Error;
-	if (!ValidateBlueprintPathParam(Directory, Error))
+	if (!ExtractRequiredString(Params, TEXT("asset_path"), AssetPath, Error))
 	{
 		return Error.GetValue();
 	}
 
-	FString ClassFilter;
-	if (Params->HasField(TEXT("class_filter")))
+	bool bIncludeSoft = ExtractOptionalBool(Params, TEXT("include_soft"), true);
+	int32 Limit = FMath::Clamp(ExtractOptionalNumber<int32>(Params, TEXT("limit"), 25), 1, 1000);
+	int32 Offset = FMath::Max(0, ExtractOptionalNumber<int32>(Params, TEXT("offset"), 0));
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FString PackagePath = AssetPath;
+	if (PackagePath.Contains(TEXT(".")))
 	{
-		ClassFilter = Params->GetStringField(TEXT("class_filter"));
+		PackagePath = FPackageName::ObjectPathToPackageName(AssetPath);
 	}
 
-	bool bRecursive = false;
-	if (Params->HasField(TEXT("recursive")))
+	FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(AssetPath));
+	if (!AssetData.IsValid())
 	{
-		bRecursive = Params->GetBoolField(TEXT("recursive"));
+		TArray<FAssetData> AssetsInPackage;
+		AssetRegistry.GetAssetsByPackageName(FName(*PackagePath), AssetsInPackage);
+		if (AssetsInPackage.Num() == 0)
+		{
+			return FMCPToolResult::Error(FString::Printf(TEXT("Asset not found: %s"), *AssetPath));
+		}
+		AssetData = AssetsInPackage[0];
 	}
 
-	int32 Limit = 25;
-	if (Params->HasField(TEXT("limit")))
+	UE::AssetRegistry::FDependencyQuery QueryFlags;
+	if (!bIncludeSoft)
 	{
-		Limit = FMath::Clamp(Params->GetIntegerField(TEXT("limit")), 1, 1000);
+		QueryFlags = UE::AssetRegistry::FDependencyQuery(UE::AssetRegistry::EDependencyQuery::Hard);
 	}
 
-	// Query asset registry
-	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	TArray<FName> RelatedAssets;
+	if (bIsDependencies)
+	{
+		AssetRegistry.GetDependencies(FName(*PackagePath), RelatedAssets,
+			UE::AssetRegistry::EDependencyCategory::Package, QueryFlags);
+	}
+	else
+	{
+		AssetRegistry.GetReferencers(FName(*PackagePath), RelatedAssets,
+			UE::AssetRegistry::EDependencyCategory::Package, QueryFlags);
+	}
 
-	TArray<FAssetData> Assets;
-	AssetRegistry.GetAssetsByPath(FName(*Directory), Assets, bRecursive);
+	TArray<FName> Filtered;
+	for (const FName& Path : RelatedAssets)
+	{
+		FString PathStr = Path.ToString();
+		if (!PathStr.StartsWith(TEXT("/Script/")) && !PathStr.StartsWith(TEXT("/Engine/")))
+		{
+			Filtered.Add(Path);
+		}
+	}
 
-	// Filter and build results
+	int32 Total = Filtered.Num();
+	int32 StartIndex = FMath::Min(Offset, Total);
+	int32 EndIndex = FMath::Min(StartIndex + Limit, Total);
+	int32 Count = EndIndex - StartIndex;
+	bool bHasMore = EndIndex < Total;
+
+	FString ResultArrayKey = bIsDependencies ? TEXT("dependencies") : TEXT("referencers");
 	TArray<TSharedPtr<FJsonValue>> ResultArray;
-	int32 Count = 0;
-
-	for (const FAssetData& AssetData : Assets)
+	for (int32 i = StartIndex; i < EndIndex; ++i)
 	{
-		if (Count >= Limit)
+		TSharedPtr<FJsonObject> EntryJson = MakeShared<FJsonObject>();
+		EntryJson->SetStringField(TEXT("path"), Filtered[i].ToString());
+
+		TArray<FAssetData> EntryAssets;
+		AssetRegistry.GetAssetsByPackageName(Filtered[i], EntryAssets);
+		if (EntryAssets.Num() > 0)
 		{
-			break;
+			EntryJson->SetStringField(TEXT("class"), EntryAssets[0].AssetClassPath.GetAssetName().ToString());
+			EntryJson->SetStringField(TEXT("name"), EntryAssets[0].AssetName.ToString());
 		}
 
-		// Apply class filter if specified
-		if (!ClassFilter.IsEmpty())
-		{
-			FString AssetClassName = AssetData.AssetClassPath.GetAssetName().ToString();
-			if (!AssetClassName.Contains(ClassFilter))
-			{
-				continue;
-			}
-		}
-
-		TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
-		AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
-		AssetObj->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
-		AssetObj->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
-		AssetObj->SetStringField(TEXT("package"), AssetData.PackageName.ToString());
-
-		ResultArray.Add(MakeShared<FJsonValueObject>(AssetObj));
-		Count++;
+		ResultArray.Add(MakeShared<FJsonValueObject>(EntryJson));
 	}
 
 	TSharedPtr<FJsonObject> ResultData = MakeShared<FJsonObject>();
-	ResultData->SetStringField(TEXT("directory"), Directory);
+	ResultData->SetStringField(TEXT("asset_path"), AssetPath);
+	ResultData->SetStringField(TEXT("direction"), bIsDependencies ? TEXT("dependencies") : TEXT("referencers"));
+	ResultData->SetArrayField(ResultArrayKey, ResultArray);
 	ResultData->SetNumberField(TEXT("count"), Count);
-	ResultData->SetNumberField(TEXT("total_found"), Assets.Num());
-	ResultData->SetArrayField(TEXT("assets"), ResultArray);
+	ResultData->SetNumberField(TEXT("total"), Total);
+	ResultData->SetNumberField(TEXT("offset"), StartIndex);
+	ResultData->SetNumberField(TEXT("limit"), Limit);
+	ResultData->SetBoolField(TEXT("hasMore"), bHasMore);
+	if (bHasMore)
+	{
+		ResultData->SetNumberField(TEXT("nextOffset"), EndIndex);
+	}
+	ResultData->SetBoolField(TEXT("include_soft"), bIncludeSoft);
 
-	return FMCPToolResult::Success(
-		FString::Printf(TEXT("Found %d assets in %s"), Count, *Directory),
-		ResultData
-	);
+	FString TypeLabel = bIsDependencies ? TEXT("dependenc") : TEXT("referencer");
+	FString Plural = bIsDependencies ? (Total == 1 ? TEXT("y") : TEXT("ies")) : (Total == 1 ? TEXT("") : TEXT("s"));
+	FString Message;
+	if (Total == 0 && !bIsDependencies)
+	{
+		Message = FString::Printf(TEXT("No referencers found for '%s' - this asset appears unused"),
+			*AssetData.AssetName.ToString());
+	}
+	else if (Count == Total)
+	{
+		Message = FString::Printf(TEXT("Found %d %s%s for '%s'"),
+			Total, *TypeLabel, *Plural, *AssetData.AssetName.ToString());
+	}
+	else
+	{
+		Message = FString::Printf(TEXT("Found %d %s%s (showing %d-%d of %d total) for '%s'"),
+			Count, *TypeLabel, *Plural, StartIndex + 1, EndIndex, Total,
+			*AssetData.AssetName.ToString());
+	}
+
+	return FMCPToolResult::Success(Message, ResultData);
 }
 
 UObject* FMCPTool_Asset::LoadAssetByPath(const FString& AssetPath, FString& OutError)
@@ -358,7 +523,6 @@ UObject* FMCPTool_Asset::LoadAssetByPath(const FString& AssetPath, FString& OutE
 	UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
 	if (!Asset)
 	{
-		// Try with _C suffix for Blueprint classes
 		if (!AssetPath.EndsWith(TEXT("_C")))
 		{
 			Asset = LoadObject<UObject>(nullptr, *(AssetPath + TEXT("_C")));
@@ -388,15 +552,12 @@ bool FMCPTool_Asset::NavigateToProperty(
 		const FString& PartName = PathParts[i];
 		const bool bIsLastPart = (i == PathParts.Num() - 1);
 
-		// Check for array index notation (e.g., "Materials.0")
 		int32 ArrayIndex = INDEX_NONE;
 		FString PropertyName = PartName;
 
-		// Check if this part is a numeric index
 		if (PartName.IsNumeric())
 		{
 			ArrayIndex = FCString::Atoi(*PartName);
-			// The previous property should be an array
 			if (!OutProperty)
 			{
 				OutError = FString::Printf(TEXT("Cannot index without preceding array property"));
@@ -410,7 +571,6 @@ bool FMCPTool_Asset::NavigateToProperty(
 				return false;
 			}
 
-			// Navigate into array element
 			FScriptArrayHelper ArrayHelper(ArrayProp, ArrayProp->ContainerPtrToValuePtr<void>(OutObject));
 			if (ArrayIndex < 0 || ArrayIndex >= ArrayHelper.Num())
 			{
@@ -418,7 +578,6 @@ bool FMCPTool_Asset::NavigateToProperty(
 				return false;
 			}
 
-			// Get the inner property
 			FProperty* InnerProp = ArrayProp->Inner;
 			if (FObjectProperty* ObjProp = CastField<FObjectProperty>(InnerProp))
 			{
@@ -434,14 +593,12 @@ bool FMCPTool_Asset::NavigateToProperty(
 
 			if (bIsLastPart)
 			{
-				// Return the inner property for setting
 				OutProperty = InnerProp;
 				return true;
 			}
 			continue;
 		}
 
-		// Find the property
 		OutProperty = OutObject->GetClass()->FindPropertyByName(FName(*PropertyName));
 
 		if (!OutProperty)
@@ -450,12 +607,10 @@ bool FMCPTool_Asset::NavigateToProperty(
 			return false;
 		}
 
-		// If not the last part, navigate into nested object
 		if (!bIsLastPart)
 		{
 			if (FArrayProperty* ArrayProp = CastField<FArrayProperty>(OutProperty))
 			{
-				// Keep the array property for next iteration (index access)
 				continue;
 			}
 
@@ -472,8 +627,6 @@ bool FMCPTool_Asset::NavigateToProperty(
 			}
 			else if (FStructProperty* StructProp = CastField<FStructProperty>(OutProperty))
 			{
-				// For structs, we need to handle differently - keep the struct property
-				// This is a limitation: we can only set entire structs, not nested struct members
 				OutError = FString::Printf(TEXT("Cannot navigate into struct property: %s. Set the entire struct instead."), *PropertyName);
 				return false;
 			}
@@ -496,7 +649,6 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 		return false;
 	}
 
-	// Parse property path
 	TArray<FString> PathParts;
 	PropertyPath.ParseIntoArray(PathParts, TEXT("."), true);
 
@@ -512,16 +664,12 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 		return false;
 	}
 
-	// Get property address
 	void* ValuePtr = Property->ContainerPtrToValuePtr<void>(TargetObject);
-
-	// Handle object property (for setting references like materials)
 	if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
 	{
 		return SetObjectPropertyValue(ObjProp, ValuePtr, Value, OutError);
 	}
 
-	// Try numeric property
 	if (FNumericProperty* NumProp = CastField<FNumericProperty>(Property))
 	{
 		if (SetNumericPropertyValue(NumProp, ValuePtr, Value))
@@ -529,7 +677,6 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 			return true;
 		}
 	}
-	// Try bool property
 	else if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
 	{
 		bool BoolVal = false;
@@ -539,7 +686,6 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 			return true;
 		}
 	}
-	// Try string property
 	else if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
 	{
 		FString StrVal;
@@ -549,7 +695,6 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 			return true;
 		}
 	}
-	// Try name property
 	else if (FNameProperty* NameProp = CastField<FNameProperty>(Property))
 	{
 		FString StrVal;
@@ -559,7 +704,6 @@ bool FMCPTool_Asset::SetPropertyFromJson(UObject* Object, const FString& Propert
 			return true;
 		}
 	}
-	// Try struct property
 	else if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
 	{
 		if (SetStructPropertyValue(StructProp, ValuePtr, Value))
@@ -639,7 +783,6 @@ bool FMCPTool_Asset::SetStructPropertyValue(FStructProperty* StructProp, void* V
 
 bool FMCPTool_Asset::SetObjectPropertyValue(FObjectProperty* ObjProp, void* ValuePtr, const TSharedPtr<FJsonValue>& Value, FString& OutError)
 {
-	// Value should be a string path to the object
 	FString ObjectPath;
 	if (!Value->TryGetString(ObjectPath))
 	{
@@ -647,14 +790,12 @@ bool FMCPTool_Asset::SetObjectPropertyValue(FObjectProperty* ObjProp, void* Valu
 		return false;
 	}
 
-	// Handle "None" or empty as null
 	if (ObjectPath.IsEmpty() || ObjectPath.Equals(TEXT("None"), ESearchCase::IgnoreCase))
 	{
 		ObjProp->SetObjectPropertyValue(ValuePtr, nullptr);
 		return true;
 	}
 
-	// Load the referenced object
 	UObject* ReferencedObject = LoadObject<UObject>(nullptr, *ObjectPath);
 	if (!ReferencedObject)
 	{
@@ -662,7 +803,6 @@ bool FMCPTool_Asset::SetObjectPropertyValue(FObjectProperty* ObjProp, void* Valu
 		return false;
 	}
 
-	// Verify type compatibility
 	if (!ReferencedObject->IsA(ObjProp->PropertyClass))
 	{
 		OutError = FString::Printf(TEXT("Object type mismatch. Expected %s, got %s"),
@@ -683,11 +823,9 @@ TSharedPtr<FJsonObject> FMCPTool_Asset::BuildAssetInfoJson(UObject* Asset)
 	Info->SetStringField(TEXT("class"), Asset->GetClass()->GetName());
 	Info->SetStringField(TEXT("package"), Asset->GetOutermost()->GetName());
 
-	// Check dirty state
 	UPackage* Package = Asset->GetOutermost();
 	Info->SetBoolField(TEXT("is_dirty"), Package->IsDirty());
 
-	// Add class-specific info
 	if (USkeletalMesh* SkelMesh = Cast<USkeletalMesh>(Asset))
 	{
 		TArray<TSharedPtr<FJsonValue>> MaterialsArr;
@@ -715,7 +853,6 @@ TArray<TSharedPtr<FJsonValue>> FMCPTool_Asset::GetAssetProperties(UObject* Asset
 	{
 		FProperty* Property = *PropIt;
 
-		// Skip non-editable if requested
 		if (bEditableOnly && !Property->HasAnyPropertyFlags(CPF_Edit))
 		{
 			continue;
@@ -724,7 +861,6 @@ TArray<TSharedPtr<FJsonValue>> FMCPTool_Asset::GetAssetProperties(UObject* Asset
 		TSharedPtr<FJsonObject> PropObj = MakeShared<FJsonObject>();
 		PropObj->SetStringField(TEXT("name"), Property->GetName());
 
-		// Determine type string
 		FString TypeStr;
 		if (CastField<FNumericProperty>(Property))
 		{
@@ -767,4 +903,18 @@ TArray<TSharedPtr<FJsonValue>> FMCPTool_Asset::GetAssetProperties(UObject* Asset
 	}
 
 	return PropsArray;
+}
+
+TSharedPtr<FJsonObject> FMCPTool_Asset::AssetDataToJson(const FAssetData& AssetData) const
+{
+	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
+
+	Json->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
+
+	Json->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
+
+	Json->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
+	Json->SetStringField(TEXT("package_path"), AssetData.PackagePath.ToString());
+
+	return Json;
 }

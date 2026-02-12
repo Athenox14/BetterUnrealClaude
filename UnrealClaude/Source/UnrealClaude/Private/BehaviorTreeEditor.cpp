@@ -37,8 +37,6 @@
 #include "BehaviorTree/Services/BTService_DefaultFocus.h"
 #include "BehaviorTree/BehaviorTreeTypes.h"
 
-// ===== Asset Management =====
-
 UBehaviorTree* FBehaviorTreeEditor::LoadBehaviorTree(const FString& AssetPath, FString& OutError)
 {
 	FString CleanPath = AssetPath;
@@ -50,7 +48,6 @@ UBehaviorTree* FBehaviorTreeEditor::LoadBehaviorTree(const FString& AssetPath, F
 	UBehaviorTree* BT = LoadObject<UBehaviorTree>(nullptr, *CleanPath);
 	if (!BT)
 	{
-		// Try with full path
 		BT = LoadObject<UBehaviorTree>(nullptr, *FString::Printf(TEXT("%s.%s"),
 			*CleanPath, *FPaths::GetBaseFilename(CleanPath)));
 	}
@@ -90,7 +87,6 @@ UBehaviorTree* FBehaviorTreeEditor::CreateBehaviorTree(
 	const FString& BlackboardPath,
 	FString& OutError)
 {
-	// Create package
 	FString FullPath = PackagePath / AssetName;
 	UPackage* Package = CreatePackage(*FullPath);
 	if (!Package)
@@ -99,7 +95,6 @@ UBehaviorTree* FBehaviorTreeEditor::CreateBehaviorTree(
 		return nullptr;
 	}
 
-	// Create BehaviorTree asset
 	UBehaviorTree* BT = NewObject<UBehaviorTree>(Package, *AssetName, RF_Public | RF_Standalone);
 	if (!BT)
 	{
@@ -107,11 +102,9 @@ UBehaviorTree* FBehaviorTreeEditor::CreateBehaviorTree(
 		return nullptr;
 	}
 
-	// Create default root node (Selector)
 	UBTComposite_Selector* RootSelector = NewObject<UBTComposite_Selector>(BT);
 	BT->RootNode = RootSelector;
 
-	// Connect to Blackboard if specified
 	if (!BlackboardPath.IsEmpty())
 	{
 		UBlackboardData* BB = LoadBlackboard(BlackboardPath, OutError);
@@ -119,15 +112,13 @@ UBehaviorTree* FBehaviorTreeEditor::CreateBehaviorTree(
 		{
 			BT->BlackboardAsset = BB;
 		}
-		// Don't fail creation if BB not found, just warn
 		if (!BB)
 		{
 			UE_LOG(LogUnrealClaude, Warning, TEXT("Blackboard '%s' not found, BT created without BB"), *BlackboardPath);
-			OutError.Empty(); // Clear error, creation still succeeds
+			OutError.Empty();
 		}
 	}
 
-	// Mark dirty and notify
 	BT->MarkPackageDirty();
 	FAssetRegistryModule::AssetCreated(BT);
 
@@ -193,8 +184,6 @@ bool FBehaviorTreeEditor::SaveAsset(UObject* Asset, FString& OutError)
 	return true;
 }
 
-// ===== Blackboard Operations =====
-
 TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeBlackboardInfo(UBlackboardData* Blackboard)
 {
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -206,7 +195,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeBlackboardInfo(UBlackboard
 	Result->SetStringField(TEXT("name"), Blackboard->GetName());
 	Result->SetStringField(TEXT("path"), Blackboard->GetPathName());
 
-	// Serialize keys
 	TArray<TSharedPtr<FJsonValue>> KeysArray;
 	for (const FBlackboardEntry& Entry : Blackboard->Keys)
 	{
@@ -219,7 +207,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeBlackboardInfo(UBlackboard
 	Result->SetArrayField(TEXT("keys"), KeysArray);
 	Result->SetNumberField(TEXT("key_count"), Blackboard->Keys.Num());
 
-	// Parent blackboard
 	if (Blackboard->Parent)
 	{
 		Result->SetStringField(TEXT("parent"), Blackboard->Parent->GetPathName());
@@ -247,7 +234,6 @@ bool FBehaviorTreeEditor::AddBlackboardKey(
 		return false;
 	}
 
-	// Check if key already exists
 	for (const FBlackboardEntry& Entry : Blackboard->Keys)
 	{
 		if (Entry.EntryName.ToString().Equals(KeyName, ESearchCase::IgnoreCase))
@@ -257,19 +243,16 @@ bool FBehaviorTreeEditor::AddBlackboardKey(
 		}
 	}
 
-	// Resolve key type
 	UClass* KeyTypeClass = ResolveBlackboardKeyType(KeyType, OutError);
 	if (!KeyTypeClass)
 	{
 		return false;
 	}
 
-	// Create new entry
 	FBlackboardEntry NewEntry;
 	NewEntry.EntryName = FName(*KeyName);
 	NewEntry.KeyType = NewObject<UBlackboardKeyType>(Blackboard, KeyTypeClass);
 
-	// For Object type, set the base class
 	if (KeyTypeClass == UBlackboardKeyType_Object::StaticClass() && !BaseClass.IsEmpty())
 	{
 		UBlackboardKeyType_Object* ObjKeyType = Cast<UBlackboardKeyType_Object>(NewEntry.KeyType);
@@ -346,7 +329,6 @@ bool FBehaviorTreeEditor::RenameBlackboardKey(
 		return false;
 	}
 
-	// Check new name doesn't exist
 	for (const FBlackboardEntry& Entry : Blackboard->Keys)
 	{
 		if (Entry.EntryName.ToString().Equals(NewName, ESearchCase::IgnoreCase))
@@ -356,7 +338,6 @@ bool FBehaviorTreeEditor::RenameBlackboardKey(
 		}
 	}
 
-	// Find and rename
 	for (FBlackboardEntry& Entry : Blackboard->Keys)
 	{
 		if (Entry.EntryName.ToString().Equals(OldName, ESearchCase::IgnoreCase))
@@ -371,8 +352,6 @@ bool FBehaviorTreeEditor::RenameBlackboardKey(
 	OutError = FString::Printf(TEXT("Key '%s' not found in Blackboard"), *OldName);
 	return false;
 }
-
-// ===== Tree Serialization =====
 
 TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeTreeStructure(UBehaviorTree* BehaviorTree)
 {
@@ -408,16 +387,12 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeCompositeNode(UBTComposite
 	TSharedPtr<FJsonObject> NodeJson = SerializeNodeBase(Node);
 	NodeJson->SetStringField(TEXT("node_category"), TEXT("composite"));
 
-	// Serialize children
 	TArray<TSharedPtr<FJsonValue>> ChildrenArray;
 	for (int32 i = 0; i < Node->Children.Num(); i++)
 	{
 		const FBTCompositeChild& Child = Node->Children[i];
 		TSharedPtr<FJsonObject> ChildJson = MakeShared<FJsonObject>();
 		ChildJson->SetNumberField(TEXT("index"), i);
-
-		FString ChildPath = FString::Printf(TEXT("root"));
-		// Build path (simplified for top level)
 
 		if (Child.ChildComposite)
 		{
@@ -428,7 +403,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeCompositeNode(UBTComposite
 			ChildJson->SetObjectField(TEXT("node"), SerializeTaskNode(Child.ChildTask));
 		}
 
-		// Decorators
 		TArray<TSharedPtr<FJsonValue>> DecoArray;
 		for (UBTDecorator* Deco : Child.Decorators)
 		{
@@ -446,7 +420,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeCompositeNode(UBTComposite
 	}
 	NodeJson->SetArrayField(TEXT("children"), ChildrenArray);
 
-	// Services on this composite
 	TArray<TSharedPtr<FJsonValue>> ServicesArray;
 	for (UBTService* Service : Node->Services)
 	{
@@ -473,7 +446,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeTaskNode(UBTTaskNode* Node
 	TSharedPtr<FJsonObject> NodeJson = SerializeNodeBase(Node);
 	NodeJson->SetStringField(TEXT("node_category"), TEXT("task"));
 
-	// Services on tasks
 	TArray<TSharedPtr<FJsonValue>> ServicesArray;
 	for (UBTService* Service : Node->Services)
 	{
@@ -502,7 +474,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeNodeBase(UBTNode* Node)
 	Json->SetStringField(TEXT("node_name"), Node->GetNodeName());
 	Json->SetNumberField(TEXT("execution_index"), Node->GetExecutionIndex());
 
-	// Extract instance description if available
 	FString Description = Node->GetStaticDescription();
 	if (!Description.IsEmpty())
 	{
@@ -527,8 +498,6 @@ TSharedPtr<FJsonObject> FBehaviorTreeEditor::SerializeServiceInfo(UBTService* Se
 	return Json;
 }
 
-// ===== Node Operations =====
-
 UBTCompositeNode* FBehaviorTreeEditor::AddCompositeNode(
 	UBehaviorTree* BehaviorTree,
 	const FString& ParentPath,
@@ -548,14 +517,12 @@ UBTCompositeNode* FBehaviorTreeEditor::AddCompositeNode(
 		return nullptr;
 	}
 
-	// Find the composite class
 	UClass* CompositeClass = FindBTNodeClass(NodeClass, UBTCompositeNode::StaticClass(), OutError);
 	if (!CompositeClass)
 	{
 		return nullptr;
 	}
 
-	// Create the node
 	UBTCompositeNode* NewNode = NewObject<UBTCompositeNode>(BehaviorTree, CompositeClass);
 	if (!NewNode)
 	{
@@ -969,7 +936,6 @@ bool FBehaviorTreeEditor::SetNodeProperty(
 		return false;
 	}
 
-	// Use UE reflection to set the property
 	FProperty* Property = Node->GetClass()->FindPropertyByName(FName(*PropertyName));
 	if (!Property)
 	{
@@ -978,7 +944,6 @@ bool FBehaviorTreeEditor::SetNodeProperty(
 		return false;
 	}
 
-	// Import text value into the property
 	void* PropertyAddr = Property->ContainerPtrToValuePtr<void>(Node);
 	if (!Property->ImportText_Direct(*PropertyValue, PropertyAddr, Node, PPF_None))
 	{
@@ -1012,7 +977,6 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 		return false;
 	}
 
-	// Find FBlackboardKeySelector property
 	FStructProperty* StructProp = nullptr;
 	for (TFieldIterator<FStructProperty> It(Node->GetClass()); It; ++It)
 	{
@@ -1032,7 +996,6 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 		return false;
 	}
 
-	// Set the key name and resolve the key ID
 	FBlackboardKeySelector* Selector = StructProp->ContainerPtrToValuePtr<FBlackboardKeySelector>(Node);
 	if (!Selector)
 	{
@@ -1042,11 +1005,9 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 
 	Selector->SelectedKeyName = FName(*KeyName);
 
-	// Let InitializeFromAsset resolve SelectedKeyID and internal references from the BB asset
 	UBlackboardData* BB = BehaviorTree->BlackboardAsset;
 	if (BB)
 	{
-		// Verify the key actually exists in the blackboard (including parents)
 		bool bKeyFound = false;
 		const UBlackboardData* CurrentBB = BB;
 		while (CurrentBB)
@@ -1069,7 +1030,6 @@ bool FBehaviorTreeEditor::SetBlackboardKeySelector(
 				*KeyName, *BB->GetName());
 		}
 
-		// InitializeFromAsset resolves SelectedKeyID from SelectedKeyName internally
 		Node->InitializeFromAsset(*BehaviorTree);
 	}
 	else
@@ -1107,8 +1067,6 @@ bool FBehaviorTreeEditor::ConnectToBlackboard(
 	return true;
 }
 
-// ===== Navigation =====
-
 UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const FString& Path, FString& OutError)
 {
 	if (!BehaviorTree || !BehaviorTree->RootNode)
@@ -1122,7 +1080,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 		return BehaviorTree->RootNode;
 	}
 
-	// Remove "root/" prefix
 	FString WorkingPath = Path;
 	if (WorkingPath.StartsWith(TEXT("root/"), ESearchCase::IgnoreCase))
 	{
@@ -1133,7 +1090,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 		return BehaviorTree->RootNode;
 	}
 
-	// Navigate through children
 	UBTCompositeNode* CurrentComposite = BehaviorTree->RootNode;
 
 	TArray<FString> PathParts;
@@ -1143,7 +1099,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 	{
 		FString Part = PathParts[PartIdx];
 
-		// Check for decorator/service suffix
 		if (Part.Contains(TEXT(".decorator.")))
 		{
 			FString IndexStr, DecoIndexStr;
@@ -1179,7 +1134,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 				return nullptr;
 			}
 
-			// Service on composite child
 			const FBTCompositeChild& Child = CurrentComposite->Children[ChildIdx];
 			if (Child.ChildComposite && SvcIdx < Child.ChildComposite->Services.Num())
 			{
@@ -1194,7 +1148,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 			return nullptr;
 		}
 
-		// Regular child index
 		int32 ChildIndex = FCString::Atoi(*Part);
 		if (!CurrentComposite)
 		{
@@ -1212,7 +1165,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 
 		const FBTCompositeChild& Child = CurrentComposite->Children[ChildIndex];
 
-		// If this is the last part, return the child node
 		if (PartIdx == PathParts.Num() - 1)
 		{
 			if (Child.ChildComposite)
@@ -1222,7 +1174,6 @@ UBTNode* FBehaviorTreeEditor::ResolveNodePath(UBehaviorTree* BehaviorTree, const
 			return Child.ChildTask;
 		}
 
-		// Need to continue navigating - must be a composite
 		if (!Child.ChildComposite)
 		{
 			OutError = FString::Printf(TEXT("Child at index %d is a task node, cannot navigate further (path: '%s')"),
@@ -1255,8 +1206,6 @@ UBTCompositeNode* FBehaviorTreeEditor::ResolveCompositeNodePath(UBehaviorTree* B
 	return Composite;
 }
 
-// ===== Helpers =====
-
 UClass* FBehaviorTreeEditor::FindBTNodeClass(const FString& NodeName, UClass* BaseClass, FString& OutError)
 {
 	if (NodeName.IsEmpty())
@@ -1265,77 +1214,6 @@ UClass* FBehaviorTreeEditor::FindBTNodeClass(const FString& NodeName, UClass* Ba
 		return nullptr;
 	}
 
-	// Well-known names mapping
-	struct FKnownNode { const TCHAR* ShortName; UClass* (*GetClass)(); };
-
-	// Composites
-	static const FKnownNode KnownComposites[] = {
-		{ TEXT("Selector"),        []() -> UClass* { return UBTComposite_Selector::StaticClass(); } },
-		{ TEXT("Sequence"),        []() -> UClass* { return UBTComposite_Sequence::StaticClass(); } },
-		{ TEXT("SimpleParallel"),  []() -> UClass* { return UBTComposite_SimpleParallel::StaticClass(); } },
-		{ TEXT("Parallel"),        []() -> UClass* { return UBTComposite_SimpleParallel::StaticClass(); } },
-	};
-
-	// Tasks
-	static const FKnownNode KnownTasks[] = {
-		{ TEXT("Wait"),            []() -> UClass* { return UBTTask_Wait::StaticClass(); } },
-		{ TEXT("MoveTo"),          []() -> UClass* { return UBTTask_MoveTo::StaticClass(); } },
-		{ TEXT("RunBehavior"),     []() -> UClass* { return UBTTask_RunBehavior::StaticClass(); } },
-		{ TEXT("PlayAnimation"),   []() -> UClass* { return UBTTask_PlayAnimation::StaticClass(); } },
-	};
-
-	// Decorators
-	static const FKnownNode KnownDecorators[] = {
-		{ TEXT("Blackboard"),      []() -> UClass* { return UBTDecorator_Blackboard::StaticClass(); } },
-		{ TEXT("ForceSuccess"),    []() -> UClass* { return UBTDecorator_ForceSuccess::StaticClass(); } },
-		{ TEXT("Loop"),            []() -> UClass* { return UBTDecorator_Loop::StaticClass(); } },
-		{ TEXT("TimeLimit"),       []() -> UClass* { return UBTDecorator_TimeLimit::StaticClass(); } },
-		{ TEXT("Cooldown"),        []() -> UClass* { return UBTDecorator_Cooldown::StaticClass(); } },
-	};
-
-	// Services
-	static const FKnownNode KnownServices[] = {
-		{ TEXT("BlackboardBase"),   []() -> UClass* { return UBTService_BlackboardBase::StaticClass(); } },
-		{ TEXT("DefaultFocus"),     []() -> UClass* { return UBTService_DefaultFocus::StaticClass(); } },
-	};
-
-	// Check well-known names based on base class
-	auto SearchKnown = [&](const FKnownNode* List, int32 Count) -> UClass*
-	{
-		for (int32 i = 0; i < Count; i++)
-		{
-			if (NodeName.Equals(List[i].ShortName, ESearchCase::IgnoreCase))
-			{
-				return List[i].GetClass();
-			}
-		}
-		return nullptr;
-	};
-
-	UClass* Found = nullptr;
-
-	if (BaseClass == UBTCompositeNode::StaticClass() || !BaseClass)
-	{
-		Found = SearchKnown(KnownComposites, UE_ARRAY_COUNT(KnownComposites));
-		if (Found) return Found;
-	}
-	if (BaseClass == UBTTaskNode::StaticClass() || !BaseClass)
-	{
-		Found = SearchKnown(KnownTasks, UE_ARRAY_COUNT(KnownTasks));
-		if (Found) return Found;
-	}
-	if (BaseClass == UBTDecorator::StaticClass() || !BaseClass)
-	{
-		Found = SearchKnown(KnownDecorators, UE_ARRAY_COUNT(KnownDecorators));
-		if (Found) return Found;
-	}
-	if (BaseClass == UBTService::StaticClass() || !BaseClass)
-	{
-		Found = SearchKnown(KnownServices, UE_ARRAY_COUNT(KnownServices));
-		if (Found) return Found;
-	}
-
-	// Try with common prefixes
 	TArray<FString> Candidates;
 	Candidates.Add(NodeName);
 	Candidates.Add(FString::Printf(TEXT("BTComposite_%s"), *NodeName));
@@ -1344,7 +1222,6 @@ UClass* FBehaviorTreeEditor::FindBTNodeClass(const FString& NodeName, UClass* Ba
 	Candidates.Add(FString::Printf(TEXT("BTService_%s"), *NodeName));
 	Candidates.Add(FString::Printf(TEXT("U%s"), *NodeName));
 
-	// Search all loaded classes
 	for (TObjectIterator<UClass> It; It; ++It)
 	{
 		UClass* TestClass = *It;
@@ -1358,7 +1235,6 @@ UClass* FBehaviorTreeEditor::FindBTNodeClass(const FString& NodeName, UClass* Ba
 			continue;
 		}
 
-		// Must at least be a BT node
 		if (!TestClass->IsChildOf(UBTNode::StaticClass()))
 		{
 			continue;
@@ -1404,7 +1280,6 @@ void FBehaviorTreeEditor::AssignExecutionIndices(UBTCompositeNode* Node, int32& 
 	{
 		const FBTCompositeChild& Child = Node->Children[i];
 
-		// Decorators
 		for (UBTDecorator* Deco : Child.Decorators)
 		{
 			if (Deco)
@@ -1413,11 +1288,9 @@ void FBehaviorTreeEditor::AssignExecutionIndices(UBTCompositeNode* Node, int32& 
 			}
 		}
 
-		// The child node itself
 		if (Child.ChildComposite)
 		{
 			Index++;
-			// Services on composite
 			for (UBTService* Svc : Child.ChildComposite->Services)
 			{
 				if (Svc)
@@ -1430,7 +1303,6 @@ void FBehaviorTreeEditor::AssignExecutionIndices(UBTCompositeNode* Node, int32& 
 		else if (Child.ChildTask)
 		{
 			Index++;
-			// Services on task
 			for (UBTService* Svc : Child.ChildTask->Services)
 			{
 				if (Svc)
