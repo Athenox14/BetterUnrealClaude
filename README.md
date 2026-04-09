@@ -6,6 +6,7 @@
 ![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.7-313131?style=flat&logo=unrealengine&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat&logo=c%2B%2B&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Win64-0078D6?style=flat&logo=windows&logoColor=white)
+![Rust](https://img.shields.io/badge/MCP%20Bridge-Rust-DEA584?style=flat&logo=rust&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-Integration-D97757?style=flat&logo=anthropic&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-21%20Tools-8A2BE2?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
@@ -23,6 +24,7 @@ This fork adds **major performance and reliability improvements** to the origina
 ### Key Enhancements
 
 - **Dynamic Blueprint Node Discovery** - Zero hardcoding! Auto-discovers all Blueprint nodes (functions, events, math ops) via reflection
+- **Native Rust MCP Bridge** - No Node.js required. Single binary, instant startup
 - **73% Token Reduction** - Optimized MCP tool descriptions and context
 - **Smart Batch Validation** - Pre-validates node references before execution, catching errors early
 - **Behavior Tree Support** - Full BT/Blackboard creation and modification tools
@@ -82,35 +84,27 @@ claude -p "Hello, can you see me?"
 
 (Check the Editor category in the plugin browser. You might need to scroll down if search doesn't pick it up)
 
-### Option A: Copy to Project Plugins (Recommended)
+### Option A: Download Release (Recommended)
 
-Prebuilt binaries for **UE 5.7 Win64** are included - no compilation required.
-
-> **Important:** This repo uses [Git LFS](https://git-lfs.com/) for binary files (`.dll`, `.pdb`). You must have Git LFS installed before cloning, or the binaries will be downloaded as small placeholder files and the plugin will fail to load.
-> ```bash
-> git lfs install   # one-time setup
-> ```
-
-1. Clone this repository (do not use "Download ZIP" — it won't include the binaries)
-2. Copy the `UnrealClaude` folder to your project's `Plugins` directory:
+1. Download the latest `.zip` from [GitHub Releases](https://github.com/Athenox14/BetterUnrealClaude/releases)
+2. Extract the `UnrealClaude` folder to your project's `Plugins` directory:
    ```
    YourProject/
    ├── Content/
    ├── Source/
    └── Plugins/
        └── UnrealClaude/
-           ├── Binaries/Win64/    # Prebuilt binaries
            ├── Source/
            ├── Resources/
+           │   └── mcp-bridge/
+           │       ├── ue5-mcp-server.exe   # Pre-compiled MCP bridge
+           │       └── contexts/            # UE5 API documentation
            ├── Config/
            └── UnrealClaude.uplugin
    ```
-3. **Install MCP Bridge dependencies** (required for Blueprint tools):
-   ```bash
-   cd YourProject/Plugins/UnrealClaude/Resources/mcp-bridge
-   npm install
-   ```
-4. Launch the editor - the plugin will load automatically
+3. Launch the editor — the plugin compiles and loads automatically
+
+No Node.js, npm, or any other runtime required. The MCP bridge is a native binary included in the release.
 
 ### Option B: Engine Plugin (All Projects)
 
@@ -119,18 +113,20 @@ Copy to your engine's plugins folder:
 C:\Program Files\Epic Games\UE_5.7\Engine\Plugins\Marketplace\UnrealClaude\
 ```
 
-Then install the MCP bridge dependencies:
-```bash
-cd "C:\Program Files\Epic Games\UE_5.7\Engine\Plugins\Marketplace\UnrealClaude\Resources\mcp-bridge"
-npm install
-```
-
-### Building from Source
+### Option C: Building from Source
 
 If you need to rebuild (different UE version, modifications, etc.):
+
+**C++ plugin:**
 ```bash
-# From UE installation directory
 Engine\Build\BatchFiles\RunUAT.bat BuildPlugin -Plugin="PATH\TO\UnrealClaude.uplugin" -Package="OUTPUT\PATH" -TargetPlatforms=Win64
+```
+
+**MCP bridge (Rust):**
+```bash
+cd UnrealClaude/Resources/mcp-bridge
+cargo build --release
+copy target\release\ue5-mcp-server.exe .
 ```
 
 ---
@@ -476,11 +472,11 @@ Check if port 3000 is available. The MCP server logs to `LogUnrealClaude`.
 
 If Claude says the MCP tools are in its instructions but not in its function list:
 
-1. **Install MCP bridge dependencies**: The most common cause is missing npm packages:
-   ```bash
-   cd YourProject/Plugins/UnrealClaude/Resources/mcp-bridge
-   npm install
+1. **Verify the MCP bridge binary exists**: Check that `ue5-mcp-server.exe` is present at:
    ```
+   YourProject/Plugins/UnrealClaude/Resources/mcp-bridge/ue5-mcp-server.exe
+   ```
+   If missing, download the latest release zip which includes the pre-compiled binary.
 
 2. **Verify the HTTP server is running**: With the editor open, test:
    ```bash
@@ -491,8 +487,6 @@ If Claude says the MCP tools are in its instructions but not in its function lis
 3. **Check the Output Log**: Look for `LogUnrealClaude` messages:
    - `MCP Server started on http://localhost:3000` - Server is running
    - `Registered X MCP tools` - Tools are loaded
-
-4. **Restart the editor**: After installing npm dependencies, restart Unreal Editor.
 
 ### Blueprint batch operations failing
 
@@ -512,18 +506,6 @@ Available pins: [Delay (output)]
 Use the suggested pins or query with `get_node_pins` first.
 
 ---
-
-## Debugging the MCP Bridge
-
-The MCP bridge is also available as a [standalone repository](https://github.com/Natfii/ue5-mcp-bridge) with its own Vitest test suite. If you're experiencing bridge-level issues (tool listing, parameter translation, context injection), you can run the bridge tests independently:
-
-```bash
-cd path/to/ue5-mcp-bridge
-npm install
-npm test
-```
-
-This tests the bridge without requiring a running Unreal Editor.
 
 ---
 
