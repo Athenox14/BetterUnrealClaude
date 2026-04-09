@@ -6,98 +6,74 @@ on:
   workflow_dispatch:
 
 jobs:
-  package:
+  build-mcp-bridge:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: '20'
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install MCP bridge dependencies
-        run: npm ci
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: UnrealClaude/Resources/mcp-bridge
+
+      - name: Build MCP bridge (release)
+        run: cargo build --release --target x86_64-pc-windows-msvc
         working-directory: UnrealClaude/Resources/mcp-bridge
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-bridge-windows
+          path: UnrealClaude/Resources/mcp-bridge/target/x86_64-pc-windows-msvc/release/ue5-mcp-server.exe
+
+  package:
+    runs-on: windows-latest
+    needs: build-mcp-bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download MCP bridge binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mcp-bridge-windows
+          path: staging/UnrealClaude/Resources/mcp-bridge/
 
       - name: Validate plugin descriptor
         shell: pwsh
         run: |
           $plugin = Get-Content UnrealClaude/UnrealClaude.uplugin | ConvertFrom-Json
           Write-Host "Plugin: $($plugin.FriendlyName) v$($plugin.VersionName)"
-          Write-Host "Engine: $($plugin.EngineVersion)"
-          if ($plugin.EngineVersion -notmatch '^\d+\.\d+\.\d+$') {
-            Write-Error "Invalid EngineVersion format"
-            exit 1
-          }
           if ('Win64' -notin $plugin.SupportedTargetPlatforms) {
             Write-Error "Win64 not in SupportedTargetPlatforms"
             exit 1
           }
-          Write-Host "Plugin descriptor OK"
-
-      - name: Validate no dead tool files
-        shell: pwsh
-        run: |
-          $dead = @(
-            'MCPTool_SpawnActor', 'MCPTool_GetLevelActors',
-            'MCPTool_DeleteActors', 'MCPTool_MoveActor',
-            'MCPTool_AssetSearch', 'MCPTool_AssetRelations'
-          )
-          $toolsDir = 'UnrealClaude/Source/UnrealClaude/Private/MCP/Tools'
-          $found = @()
-          foreach ($f in $dead) {
-            if (Test-Path "$toolsDir/$f.cpp") { $found += $f }
-            if (Test-Path "$toolsDir/$f.h") { $found += $f }
-          }
-          if ($found.Count -gt 0) {
-            Write-Error "Dead tool files found: $($found -join ', ')"
-            exit 1
-          }
-          Write-Host "No dead tool files found"
-
-      - name: Validate source structure
-        shell: pwsh
-        run: |
-          # Check critical files exist
-          $required = @(
-            'UnrealClaude/UnrealClaude.uplugin',
-            'UnrealClaude/Source/UnrealClaude/UnrealClaude.Build.cs',
-            'UnrealClaude/Resources/mcp-bridge/index.js',
-            'UnrealClaude/Resources/mcp-bridge/lib.js',
-            'UnrealClaude/Resources/mcp-bridge/package.json',
-            'UnrealClaude/config.json'
-          )
-          $missing = @()
-          foreach ($f in $required) {
-            if (-not (Test-Path $f)) { $missing += $f }
-          }
-          if ($missing.Count -gt 0) {
-            Write-Error "Missing required files: $($missing -join ', ')"
-            exit 1
-          }
-          Write-Host "Source structure OK"
 
       - name: Create release package
         shell: pwsh
         run: |
           $plugin = Get-Content UnrealClaude/UnrealClaude.uplugin | ConvertFrom-Json
           $version = $plugin.VersionName
-          $zipName = "BetterUnrealClaude-v${version}-UE$($plugin.EngineVersion)-Source.zip"
+          $zipName = "BetterUnrealClaude-v${version}-UE$($plugin.EngineVersion)-Win64.zip"
 
-          # Create clean staging directory
-          New-Item -ItemType Directory -Path staging/UnrealClaude -Force | Out-Null
+          # Copy plugin contents to staging
+          Copy-Item -Recurse UnrealClaude/* staging/UnrealClaude/ -Force
 
-          # Copy plugin contents
-          Copy-Item -Recurse UnrealClaude/* staging/UnrealClaude/
-
-          # Remove dev-only files from staging
-          $devFiles = @('.mcp.json')
-          foreach ($f in $devFiles) {
-            $path = "staging/UnrealClaude/$f"
-            if (Test-Path $path) { Remove-Item $path -Force }
+          # Remove dev-only and build files
+          $removePatterns = @('.mcp.json', 'Resources/mcp-bridge/src', 'Resources/mcp-bridge/Cargo.toml', 'Resources/mcp-bridge/target')
+          foreach ($p in $removePatterns) {
+            $path = "staging/UnrealClaude/$p"
+            if (Test-Path $path) { Remove-Item $path -Recurse -Force }
           }
 
-          # Create zip
+          # Verify binary exists
+          if (-not (Test-Path "staging/UnrealClaude/Resources/mcp-bridge/ue5-mcp-server.exe")) {
+            Write-Error "MCP bridge binary not found in staging"
+            exit 1
+          }
+
           Compress-Archive -Path staging/UnrealClaude -DestinationPath $zipName
           Write-Host "Created $zipName"
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV

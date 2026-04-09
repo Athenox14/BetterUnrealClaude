@@ -25,12 +25,14 @@ Tutorials/
 *.sdf
 *.cachefile
 
-# Node.js (for MCP bridge)
+# Node.js (legacy, removed in Rust migration)
 node_modules/
 npm-debug.log
 yarn-error.log
-# Keep package-lock.json for reproducible builds
-# package-lock.json
+
+# Rust (MCP bridge)
+target/
+Cargo.lock
 
 # Claude Code session data
 .claude/
