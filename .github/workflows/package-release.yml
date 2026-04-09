@@ -58,8 +58,9 @@ jobs:
         shell: pwsh
         run: |
           $plugin = Get-Content UnrealClaude/UnrealClaude.uplugin | ConvertFrom-Json
-          $version = $plugin.VersionName
-          $zipName = "BetterUnrealClaude-v${version}-UE$($plugin.EngineVersion)-Win64.zip"
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag -or $tag -eq "") { $tag = "v$($plugin.VersionName)" }
+          $zipName = "BetterUnrealClaude-${tag}-UE$($plugin.EngineVersion)-Win64.zip"
 
           # Copy plugin contents to staging
           Copy-Item -Recurse UnrealClaude/* staging/UnrealClaude/ -Force
