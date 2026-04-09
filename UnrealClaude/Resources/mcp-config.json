@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "unrealclaude": {
-      "command": "node",
-      "args": ["${PLUGIN_DIR}/Resources/mcp-bridge/index.js"],
+      "command": "${PLUGIN_DIR}/Resources/mcp-bridge/ue5-mcp-server",
+      "args": [],
       "env": {
         "UNREAL_MCP_URL": "http://localhost:3000"
       }

@@ -404,9 +404,16 @@ FString FClaudeCodeRunner::BuildCommandLine(const FClaudeRequestConfig& Config)
 	FString PluginDir = GetPluginDirectory();
 	if (!PluginDir.IsEmpty())
 	{
-		FString MCPBridgePath = FPaths::Combine(PluginDir, TEXT("Resources"), TEXT("mcp-bridge"), TEXT("index.js"));
+		// Look for the compiled Rust MCP bridge binary
+		FString MCPBridgePath = FPaths::ConvertRelativePathToFull(
+			FPaths::Combine(PluginDir, TEXT("Resources"), TEXT("mcp-bridge"),
+#if PLATFORM_WINDOWS
+				TEXT("ue5-mcp-server.exe")
+#else
+				TEXT("ue5-mcp-server")
+#endif
+			));
 		FPaths::NormalizeFilename(MCPBridgePath);
-		MCPBridgePath = FPaths::ConvertRelativePathToFull(MCPBridgePath);
 
 		if (FPaths::FileExists(MCPBridgePath))
 		{
@@ -416,7 +423,7 @@ FString FClaudeCodeRunner::BuildCommandLine(const FClaudeRequestConfig& Config)
 
 			FString MCPConfigPath = FPaths::Combine(MCPConfigDir, TEXT("mcp-config.json"));
 			FString MCPConfigContent = FString::Printf(
-				TEXT("{\n  \"mcpServers\": {\n    \"unrealclaude\": {\n      \"command\": \"node\",\n      \"args\": [\"%s\"],\n      \"env\": {\n        \"UNREAL_MCP_URL\": \"http://localhost:%d\"\n      }\n    }\n  }\n}"),
+				TEXT("{\n  \"mcpServers\": {\n    \"unrealclaude\": {\n      \"command\": \"%s\",\n      \"args\": [],\n      \"env\": {\n        \"UNREAL_MCP_URL\": \"http://localhost:%d\"\n      }\n    }\n  }\n}"),
 				*MCPBridgePath.Replace(TEXT("\\"), TEXT("/")),
 				UnrealClaudeConstants::MCPServer::DefaultPort
 			);
@@ -434,7 +441,7 @@ FString FClaudeCodeRunner::BuildCommandLine(const FClaudeRequestConfig& Config)
 		}
 		else
 		{
-			UE_LOG(LogUnrealClaude, Warning, TEXT("MCP bridge not found at: %s"), *MCPBridgePath);
+			UE_LOG(LogUnrealClaude, Warning, TEXT("MCP bridge binary not found at: %s"), *MCPBridgePath);
 		}
 	}
 

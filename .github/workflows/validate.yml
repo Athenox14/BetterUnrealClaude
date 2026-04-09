@@ -12,14 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install MCP bridge dependencies
-        run: npm ci
-        working-directory: UnrealClaude/Resources/mcp-bridge
-
       - name: Validate plugin descriptor
         run: |
           python3 -c "
@@ -62,10 +54,39 @@ jobs:
       - name: Check no FJsonUtils references remain
         run: |
           if grep -r "FJsonUtils" UnrealClaude/Source/ 2>/dev/null; then
-            echo "ERROR: FJsonUtils references still exist (should use FJsonObject/FJsonSerializer directly)"
+            echo "ERROR: FJsonUtils references still exist"
             exit 1
           fi
           echo "No FJsonUtils references found"
 
-      - name: Validate MCP bridge syntax
-        run: node --check UnrealClaude/Resources/mcp-bridge/index.js && node --check UnrealClaude/Resources/mcp-bridge/lib.js && node --check UnrealClaude/Resources/mcp-bridge/context-loader.js
+  build-mcp-bridge:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: ue5-mcp-server.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: ue5-mcp-server
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: UnrealClaude/Resources/mcp-bridge
+
+      - name: Build MCP bridge
+        run: cargo build --release --target ${{ matrix.target }}
+        working-directory: UnrealClaude/Resources/mcp-bridge
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-bridge-${{ matrix.target }}
+          path: UnrealClaude/Resources/mcp-bridge/target/${{ matrix.target }}/release/${{ matrix.binary }}
