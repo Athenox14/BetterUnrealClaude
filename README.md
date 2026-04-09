@@ -104,8 +104,6 @@ claude -p "Hello, can you see me?"
    ```
 3. Launch the editor — the plugin compiles and loads automatically
 
-No Node.js, npm, or any other runtime required. The MCP bridge is a native binary included in the release.
-
 ### Option B: Engine Plugin (All Projects)
 
 Copy to your engine's plugins folder:
