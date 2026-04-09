@@ -436,49 +436,11 @@ protected:
 		return true;
 	}
 
-	/**
-	 * Validate actor name parameter using centralized validator
-	 * @param ActorName - Actor name to validate
-	 * @param OutError - Optional error result if validation fails
-	 * @return true if valid
-	 */
-	bool ValidateActorNameParam(const FString& ActorName, TOptional<FMCPToolResult>& OutError) const
-	{
-		return ValidateParam(ActorName, FMCPParamValidator::ValidateActorName, OutError);
-	}
-
-	/**
-	 * Validate console command parameter using centralized validator
-	 * @param Command - Command to validate
-	 * @param OutError - Optional error result if validation fails
-	 * @return true if valid
-	 */
-	bool ValidateConsoleCommandParam(const FString& Command, TOptional<FMCPToolResult>& OutError) const
-	{
-		return ValidateParam(Command, FMCPParamValidator::ValidateConsoleCommand, OutError);
-	}
-
-	/**
-	 * Validate property path parameter using centralized validator
-	 * @param PropertyPath - Property path to validate
-	 * @param OutError - Optional error result if validation fails
-	 * @return true if valid
-	 */
-	bool ValidatePropertyPathParam(const FString& PropertyPath, TOptional<FMCPToolResult>& OutError) const
-	{
-		return ValidateParam(PropertyPath, FMCPParamValidator::ValidatePropertyPath, OutError);
-	}
-
-	/**
-	 * Validate Blueprint path parameter using centralized validator
-	 * @param BlueprintPath - Path to validate
-	 * @param OutError - Optional error result if validation fails
-	 * @return true if valid
-	 */
-	bool ValidateBlueprintPathParam(const FString& BlueprintPath, TOptional<FMCPToolResult>& OutError) const
-	{
-		return ValidateParam(BlueprintPath, FMCPParamValidator::ValidateBlueprintPath, OutError);
-	}
+	// Convenience aliases for common validators
+	bool ValidateActorNameParam(const FString& V, TOptional<FMCPToolResult>& E) const { return ValidateParam(V, FMCPParamValidator::ValidateActorName, E); }
+	bool ValidateConsoleCommandParam(const FString& V, TOptional<FMCPToolResult>& E) const { return ValidateParam(V, FMCPParamValidator::ValidateConsoleCommand, E); }
+	bool ValidatePropertyPathParam(const FString& V, TOptional<FMCPToolResult>& E) const { return ValidateParam(V, FMCPParamValidator::ValidatePropertyPath, E); }
+	bool ValidateBlueprintPathParam(const FString& V, TOptional<FMCPToolResult>& E) const { return ValidateParam(V, FMCPParamValidator::ValidateBlueprintPath, E); }
 
 	// ===== Class Loading Helpers =====
 
@@ -594,5 +556,79 @@ protected:
 			JsonArray.Add(MakeShared<FJsonValueString>(Str));
 		}
 		return JsonArray;
+	}
+
+	// ===== Property Reflection Helpers =====
+	// Shared by MCPTool_SetProperty and MCPTool_Asset
+
+	/**
+	 * Set a numeric property value (int or float) from a JSON value.
+	 * Handles both integer and floating-point numeric properties.
+	 */
+	static bool SetNumericPropertyFromJson(FNumericProperty* NumProp, void* ValuePtr, const TSharedPtr<FJsonValue>& Value)
+	{
+		if (NumProp->IsFloatingPoint())
+		{
+			double DoubleVal = 0.0;
+			if (Value->TryGetNumber(DoubleVal))
+			{
+				NumProp->SetFloatingPointPropertyValue(ValuePtr, DoubleVal);
+				return true;
+			}
+		}
+		else if (NumProp->IsInteger())
+		{
+			int64 IntVal = 0;
+			if (Value->TryGetNumber(IntVal))
+			{
+				NumProp->SetIntPropertyValue(ValuePtr, IntVal);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Set a simple (non-struct, non-object) property from JSON.
+	 * Handles: numeric, bool, string, name properties.
+	 * @return true if handled and set, false if property type not supported here
+	 */
+	static bool SetSimplePropertyFromJson(FProperty* Property, void* ValuePtr, const TSharedPtr<FJsonValue>& Value)
+	{
+		if (FNumericProperty* NumProp = CastField<FNumericProperty>(Property))
+		{
+			return SetNumericPropertyFromJson(NumProp, ValuePtr, Value);
+		}
+		if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
+		{
+			bool BoolVal = false;
+			if (Value->TryGetBool(BoolVal))
+			{
+				BoolProp->SetPropertyValue(ValuePtr, BoolVal);
+				return true;
+			}
+			return false;
+		}
+		if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
+		{
+			FString StrVal;
+			if (Value->TryGetString(StrVal))
+			{
+				StrProp->SetPropertyValue(ValuePtr, StrVal);
+				return true;
+			}
+			return false;
+		}
+		if (FNameProperty* NameProp = CastField<FNameProperty>(Property))
+		{
+			FString StrVal;
+			if (Value->TryGetString(StrVal))
+			{
+				NameProp->SetPropertyValue(ValuePtr, FName(*StrVal));
+				return true;
+			}
+			return false;
+		}
+		return false;
 	}
 };

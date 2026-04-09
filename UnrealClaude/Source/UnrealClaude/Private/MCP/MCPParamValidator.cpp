@@ -9,75 +9,99 @@ using namespace UnrealClaudeConstants::MCPValidation;
 const TArray<FString>& FMCPParamValidator::GetBlockedConsoleCommands()
 {
 	static TArray<FString> BlockedCommands = {
-		// Dangerous commands that could crash or corrupt
-		TEXT("quit"),
-		TEXT("exit"),
-		TEXT("crash"),
-		TEXT("forcegc"),
-		TEXT("forcecrash"),
-		TEXT("debug crash"),
-
-		// Memory manipulation commands
-		TEXT("mem"),
-		TEXT("memreport"),
-		TEXT("obj"),
-
-		// File system commands that could be dangerous
-		TEXT("exec"),
-		TEXT("savepackage"),
-		TEXT("deletepackage"),
-
-		// Network commands that could expose security issues
-		TEXT("net"),
-		TEXT("admin"),
-
-		// Engine shutdown commands
-		TEXT("shutdown"),
-		TEXT("restartlevel"),
-		TEXT("open"),  // Could open malicious maps
-		TEXT("servertravel"),
-
-		// Debug camera can cause issues in editor
-		TEXT("toggledebugcamera"),
-		TEXT("enablecheats"),
-
-		// Potentially dangerous stat commands
+		TEXT("quit"), TEXT("exit"), TEXT("crash"), TEXT("forcegc"),
+		TEXT("forcecrash"), TEXT("debug crash"),
+		TEXT("mem"), TEXT("memreport"), TEXT("obj"),
+		TEXT("exec"), TEXT("savepackage"), TEXT("deletepackage"),
+		TEXT("net"), TEXT("admin"),
+		TEXT("shutdown"), TEXT("restartlevel"), TEXT("open"), TEXT("servertravel"),
+		TEXT("toggledebugcamera"), TEXT("enablecheats"),
 		TEXT("stat slow"),
-
-		// Commands that modify engine state dangerously
-		TEXT("gc."),
-		TEXT("r."),  // Block all rendering CVars as they can crash
+		TEXT("gc."), TEXT("r."),
 	};
-
 	return BlockedCommands;
 }
 
-bool FMCPParamValidator::ValidateActorName(const FString& Name, FString& OutError)
+// ===== Private helpers =====
+
+/** Shared logic for path-style validators: empty, length, dangerous chars, path traversal */
+static bool ValidatePathCommon(const FString& Value, const FString& FieldLabel, int32 MaxLength, bool bCheckPathTraversal, FString& OutError)
 {
-	if (Name.IsEmpty())
+	if (Value.IsEmpty())
 	{
-		OutError = TEXT("Actor name cannot be empty");
+		OutError = FString::Printf(TEXT("%s cannot be empty"), *FieldLabel);
 		return false;
 	}
 
-	if (Name.Len() > MaxActorNameLength)
+	if (Value.Len() > MaxLength)
 	{
-		OutError = FString::Printf(TEXT("Actor name exceeds maximum length of %d characters"), MaxActorNameLength);
+		OutError = FString::Printf(TEXT("%s exceeds maximum length of %d characters"), *FieldLabel, MaxLength);
 		return false;
 	}
 
-	// Check for dangerous characters (optimized: avoid FString allocation in loop)
+	// Check for dangerous characters
 	int32 FoundIndex;
 	for (const TCHAR* c = DangerousChars; *c; ++c)
 	{
-		if (Name.FindChar(*c, FoundIndex))
+		if (Value.FindChar(*c, FoundIndex))
 		{
-			OutError = FString::Printf(TEXT("Actor name contains invalid character: '%c'"), *c);
+			OutError = FString::Printf(TEXT("%s contains invalid character: '%c'"), *FieldLabel, *c);
 			return false;
 		}
 	}
 
-	// Check for control characters
+	if (bCheckPathTraversal && Value.Contains(TEXT("..")))
+	{
+		OutError = FString::Printf(TEXT("%s cannot contain path traversal sequences"), *FieldLabel);
+		return false;
+	}
+
+	return true;
+}
+
+/** Shared logic for identifier validators (variable names, function names, etc.) */
+static bool ValidateIdentifier(const FString& Name, const FString& FieldLabel, int32 MaxLength, FString& OutError)
+{
+	if (Name.IsEmpty())
+	{
+		OutError = FString::Printf(TEXT("%s cannot be empty"), *FieldLabel);
+		return false;
+	}
+
+	if (Name.Len() > MaxLength)
+	{
+		OutError = FString::Printf(TEXT("%s exceeds maximum length of %d characters"), *FieldLabel, MaxLength);
+		return false;
+	}
+
+	if (!FChar::IsAlpha(Name[0]) && Name[0] != TEXT('_'))
+	{
+		OutError = FString::Printf(TEXT("%s must start with a letter or underscore"), *FieldLabel);
+		return false;
+	}
+
+	for (TCHAR C : Name)
+	{
+		if (!FChar::IsAlnum(C) && C != TEXT('_'))
+		{
+			OutError = FString::Printf(TEXT("%s contains invalid character: '%c'"), *FieldLabel, C);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+// ===== Public API =====
+
+bool FMCPParamValidator::ValidateActorName(const FString& Name, FString& OutError)
+{
+	if (!ValidatePathCommon(Name, TEXT("Actor name"), MaxActorNameLength, /*bCheckPathTraversal=*/false, OutError))
+	{
+		return false;
+	}
+
+	// Additional: reject control characters
 	for (TCHAR c : Name)
 	{
 		if (c < 32 && c != TEXT('\0'))
@@ -104,7 +128,7 @@ bool FMCPParamValidator::ValidatePropertyPath(const FString& PropertyPath, FStri
 		return false;
 	}
 
-	// Property paths should only contain alphanumeric, underscore, and dot
+	// Property paths: only alphanumeric, underscore, dot
 	for (TCHAR c : PropertyPath)
 	{
 		if (!FChar::IsAlnum(c) && c != TEXT('_') && c != TEXT('.'))
@@ -114,14 +138,12 @@ bool FMCPParamValidator::ValidatePropertyPath(const FString& PropertyPath, FStri
 		}
 	}
 
-	// Check for double dots which could indicate path traversal attempts
 	if (PropertyPath.Contains(TEXT("..")))
 	{
 		OutError = TEXT("Property path cannot contain consecutive dots");
 		return false;
 	}
 
-	// Should not start or end with a dot
 	if (PropertyPath.StartsWith(TEXT(".")) || PropertyPath.EndsWith(TEXT(".")))
 	{
 		OutError = TEXT("Property path cannot start or end with a dot");
@@ -133,38 +155,7 @@ bool FMCPParamValidator::ValidatePropertyPath(const FString& PropertyPath, FStri
 
 bool FMCPParamValidator::ValidateClassPath(const FString& ClassPath, FString& OutError)
 {
-	if (ClassPath.IsEmpty())
-	{
-		OutError = TEXT("Class path cannot be empty");
-		return false;
-	}
-
-	if (ClassPath.Len() > MaxClassPathLength)
-	{
-		OutError = FString::Printf(TEXT("Class path exceeds maximum length of %d characters"), MaxClassPathLength);
-		return false;
-	}
-
-	// Check for dangerous characters (excluding / and . which are valid in paths)
-	// Optimized: avoid FString allocation in loop
-	int32 FoundIndex;
-	for (const TCHAR* c = DangerousChars; *c; ++c)
-	{
-		if (ClassPath.FindChar(*c, FoundIndex))
-		{
-			OutError = FString::Printf(TEXT("Class path contains invalid character: '%c'"), *c);
-			return false;
-		}
-	}
-
-	// Check for path traversal
-	if (ClassPath.Contains(TEXT("..")))
-	{
-		OutError = TEXT("Class path cannot contain path traversal sequences");
-		return false;
-	}
-
-	return true;
+	return ValidatePathCommon(ClassPath, TEXT("Class path"), MaxClassPathLength, /*bCheckPathTraversal=*/true, OutError);
 }
 
 bool FMCPParamValidator::ValidateConsoleCommand(const FString& Command, FString& OutError)
@@ -183,7 +174,6 @@ bool FMCPParamValidator::ValidateConsoleCommand(const FString& Command, FString&
 
 	// Check against blocklist
 	FString CommandLower = Command.ToLower().TrimStartAndEnd();
-
 	for (const FString& Blocked : GetBlockedConsoleCommands())
 	{
 		if (CommandLower.StartsWith(Blocked.ToLower()))
@@ -212,21 +202,18 @@ bool FMCPParamValidator::ValidateConsoleCommand(const FString& Command, FString&
 
 bool FMCPParamValidator::ValidateNumericValue(double Value, const FString& FieldName, FString& OutError, double MaxAbsValue)
 {
-	// Check for NaN
 	if (FMath::IsNaN(Value))
 	{
 		OutError = FString::Printf(TEXT("%s: NaN is not a valid value"), *FieldName);
 		return false;
 	}
 
-	// Check for infinity
 	if (!FMath::IsFinite(Value))
 	{
 		OutError = FString::Printf(TEXT("%s: Infinite values are not allowed"), *FieldName);
 		return false;
 	}
 
-	// Check bounds
 	if (FMath::Abs(Value) > MaxAbsValue)
 	{
 		OutError = FString::Printf(TEXT("%s: Value %f exceeds maximum allowed magnitude of %f"), *FieldName, Value, MaxAbsValue);
@@ -248,13 +235,11 @@ bool FMCPParamValidator::ValidateStringLength(const FString& Value, const FStrin
 
 FString FMCPParamValidator::SanitizeString(const FString& Input)
 {
-	// Build result without dangerous characters in single pass (optimized)
 	FString Output;
 	Output.Reserve(Input.Len());
 
 	for (TCHAR InputChar : Input)
 	{
-		// Check if this character is in the dangerous chars list
 		bool bIsDangerous = false;
 		for (const TCHAR* c = DangerousChars; *c; ++c)
 		{
@@ -265,7 +250,6 @@ FString FMCPParamValidator::SanitizeString(const FString& Input)
 			}
 		}
 
-		// Only keep non-dangerous, non-control characters
 		if (!bIsDangerous && (InputChar >= 32 || InputChar == TEXT('\0')))
 		{
 			Output.AppendChar(InputChar);
@@ -277,42 +261,16 @@ FString FMCPParamValidator::SanitizeString(const FString& Input)
 
 bool FMCPParamValidator::ValidateBlueprintPath(const FString& BlueprintPath, FString& OutError)
 {
-	if (BlueprintPath.IsEmpty())
+	if (!ValidatePathCommon(BlueprintPath, TEXT("Blueprint path"), 512, /*bCheckPathTraversal=*/true, OutError))
 	{
-		OutError = TEXT("Blueprint path cannot be empty");
 		return false;
 	}
 
-	if (BlueprintPath.Len() > 512)
-	{
-		OutError = TEXT("Blueprint path exceeds maximum length of 512 characters");
-		return false;
-	}
-
-	// Block engine Blueprints
+	// Additional: block engine Blueprints
 	if (BlueprintPath.StartsWith(TEXT("/Engine/")) || BlueprintPath.StartsWith(TEXT("/Script/")))
 	{
 		OutError = TEXT("Cannot access engine or script Blueprints");
 		return false;
-	}
-
-	// Check for path traversal
-	if (BlueprintPath.Contains(TEXT("..")))
-	{
-		OutError = TEXT("Blueprint path cannot contain path traversal sequences");
-		return false;
-	}
-
-	// Check for dangerous characters
-	// Optimized: avoid FString allocation in loop
-	int32 FoundIndex;
-	for (const TCHAR* c = DangerousChars; *c; ++c)
-	{
-		if (BlueprintPath.FindChar(*c, FoundIndex))
-		{
-			OutError = FString::Printf(TEXT("Blueprint path contains invalid character: '%c'"), *c);
-			return false;
-		}
 	}
 
 	return true;
@@ -320,69 +278,10 @@ bool FMCPParamValidator::ValidateBlueprintPath(const FString& BlueprintPath, FSt
 
 bool FMCPParamValidator::ValidateBlueprintVariableName(const FString& VariableName, FString& OutError)
 {
-	if (VariableName.IsEmpty())
-	{
-		OutError = TEXT("Variable name cannot be empty");
-		return false;
-	}
-
-	if (VariableName.Len() > 128)
-	{
-		OutError = TEXT("Variable name exceeds maximum length of 128 characters");
-		return false;
-	}
-
-	// Must start with letter or underscore
-	if (!FChar::IsAlpha(VariableName[0]) && VariableName[0] != TEXT('_'))
-	{
-		OutError = TEXT("Variable name must start with a letter or underscore");
-		return false;
-	}
-
-	// Only alphanumeric and underscore
-	for (TCHAR C : VariableName)
-	{
-		if (!FChar::IsAlnum(C) && C != TEXT('_'))
-		{
-			OutError = FString::Printf(TEXT("Variable name contains invalid character: '%c'"), C);
-			return false;
-		}
-	}
-
-	return true;
+	return ValidateIdentifier(VariableName, TEXT("Variable name"), 128, OutError);
 }
 
 bool FMCPParamValidator::ValidateBlueprintFunctionName(const FString& FunctionName, FString& OutError)
 {
-	// Same validation rules as variable names
-	if (FunctionName.IsEmpty())
-	{
-		OutError = TEXT("Function name cannot be empty");
-		return false;
-	}
-
-	if (FunctionName.Len() > 128)
-	{
-		OutError = TEXT("Function name exceeds maximum length of 128 characters");
-		return false;
-	}
-
-	// Must start with letter or underscore
-	if (!FChar::IsAlpha(FunctionName[0]) && FunctionName[0] != TEXT('_'))
-	{
-		OutError = TEXT("Function name must start with a letter or underscore");
-		return false;
-	}
-
-	// Only alphanumeric and underscore
-	for (TCHAR C : FunctionName)
-	{
-		if (!FChar::IsAlnum(C) && C != TEXT('_'))
-		{
-			OutError = FString::Printf(TEXT("Function name contains invalid character: '%c'"), C);
-			return false;
-		}
-	}
-
-	return true;
+	return ValidateIdentifier(FunctionName, TEXT("Function name"), 128, OutError);
 }

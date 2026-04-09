@@ -64,7 +64,7 @@ const CONFIG = {
   unrealMcpUrl: process.env.UNREAL_MCP_URL || `http://localhost:${getConfigPort()}`,
   requestTimeoutMs: parseInt(process.env.MCP_REQUEST_TIMEOUT_MS, 10) || 30000,
   injectContext: process.env.INJECT_CONTEXT === "true",
-  asyncEnabled: process.env.MCP_ASYNC_ENABLED !== "false",
+  asyncEnabled: process.env.MCP_ASYNC_ENABLED === "true",
   asyncTimeoutMs: parseInt(process.env.MCP_ASYNC_TIMEOUT_MS, 10) || 300000,
   pollIntervalMs: parseInt(process.env.MCP_POLL_INTERVAL_MS, 10) || 2000,
 };
@@ -320,11 +320,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const toolName = name.substring(7);
 
-  // Tools excluded from auto-async: task_* tools are the async infrastructure itself
+  // Only use async for long-running tools; sync is faster for everything else
   const isTaskTool = toolName.startsWith("task_");
+  const ASYNC_TOOLS = new Set(["execute_script"]);
+  const useAsync = CONFIG.asyncEnabled || ASYNC_TOOLS.has(toolName);
 
   let result;
-  if (CONFIG.asyncEnabled && !isTaskTool) {
+  if (useAsync && !isTaskTool) {
     const progressToken = request.params._meta?.progressToken;
     const onProgress = progressToken
       ? ({ progress, total, message }) => {
