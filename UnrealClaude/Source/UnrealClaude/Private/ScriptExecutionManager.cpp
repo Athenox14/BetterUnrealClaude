@@ -4,7 +4,10 @@
 #include "ScriptPermissionDialog.h"
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeUtils.h"
-#include "JsonUtils.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "MCP/MCPParamValidator.h"
 
 #include "Misc/Paths.h"
@@ -652,7 +655,9 @@ bool FScriptExecutionManager::SaveHistory()
 	RootObject->SetArrayField(TEXT("scripts"), ScriptsArray);
 	RootObject->SetStringField(TEXT("last_updated"), FDateTime::UtcNow().ToString(TEXT("%Y-%m-%dT%H:%M:%SZ")));
 
-	FString JsonString = FJsonUtils::Stringify(RootObject, true);
+	FString JsonString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject.ToSharedRef(), Writer);
 
 	if (FFileHelper::SaveStringToFile(JsonString, *HistoryPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
@@ -681,8 +686,9 @@ bool FScriptExecutionManager::LoadHistory()
 		return false;
 	}
 
-	TSharedPtr<FJsonObject> RootObject = FJsonUtils::Parse(JsonString);
-	if (!RootObject.IsValid())
+	TSharedPtr<FJsonObject> RootObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+	if (!FJsonSerializer::Deserialize(Reader, RootObject) || !RootObject.IsValid())
 	{
 		UE_LOG(LogUnrealClaude, Error, TEXT("Failed to parse script history JSON"));
 		return false;
@@ -690,10 +696,10 @@ bool FScriptExecutionManager::LoadHistory()
 
 	History.Empty();
 
-	TArray<TSharedPtr<FJsonValue>> ScriptsArray;
-	if (FJsonUtils::GetArrayField(RootObject, TEXT("scripts"), ScriptsArray))
+	const TArray<TSharedPtr<FJsonValue>>* ScriptsArrayPtr;
+	if (RootObject->TryGetArrayField(TEXT("scripts"), ScriptsArrayPtr))
 	{
-		for (const TSharedPtr<FJsonValue>& ScriptValue : ScriptsArray)
+		for (const TSharedPtr<FJsonValue>& ScriptValue : *ScriptsArrayPtr)
 		{
 			const TSharedPtr<FJsonObject>* ScriptObject = nullptr;
 			if (ScriptValue->TryGetObject(ScriptObject) && ScriptObject != nullptr && (*ScriptObject).IsValid())

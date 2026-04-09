@@ -1,0 +1,115 @@
+name: Package Plugin Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install MCP bridge dependencies
+        run: npm ci
+        working-directory: UnrealClaude/Resources/mcp-bridge
+
+      - name: Validate plugin descriptor
+        shell: pwsh
+        run: |
+          $plugin = Get-Content UnrealClaude/UnrealClaude.uplugin | ConvertFrom-Json
+          Write-Host "Plugin: $($plugin.FriendlyName) v$($plugin.VersionName)"
+          Write-Host "Engine: $($plugin.EngineVersion)"
+          if ($plugin.EngineVersion -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "Invalid EngineVersion format"
+            exit 1
+          }
+          if ('Win64' -notin $plugin.SupportedTargetPlatforms) {
+            Write-Error "Win64 not in SupportedTargetPlatforms"
+            exit 1
+          }
+          Write-Host "Plugin descriptor OK"
+
+      - name: Validate no dead tool files
+        shell: pwsh
+        run: |
+          $dead = @(
+            'MCPTool_SpawnActor', 'MCPTool_GetLevelActors',
+            'MCPTool_DeleteActors', 'MCPTool_MoveActor',
+            'MCPTool_AssetSearch', 'MCPTool_AssetRelations'
+          )
+          $toolsDir = 'UnrealClaude/Source/UnrealClaude/Private/MCP/Tools'
+          $found = @()
+          foreach ($f in $dead) {
+            if (Test-Path "$toolsDir/$f.cpp") { $found += $f }
+            if (Test-Path "$toolsDir/$f.h") { $found += $f }
+          }
+          if ($found.Count -gt 0) {
+            Write-Error "Dead tool files found: $($found -join ', ')"
+            exit 1
+          }
+          Write-Host "No dead tool files found"
+
+      - name: Validate source structure
+        shell: pwsh
+        run: |
+          # Check critical files exist
+          $required = @(
+            'UnrealClaude/UnrealClaude.uplugin',
+            'UnrealClaude/Source/UnrealClaude/UnrealClaude.Build.cs',
+            'UnrealClaude/Resources/mcp-bridge/index.js',
+            'UnrealClaude/Resources/mcp-bridge/lib.js',
+            'UnrealClaude/Resources/mcp-bridge/package.json',
+            'UnrealClaude/config.json'
+          )
+          $missing = @()
+          foreach ($f in $required) {
+            if (-not (Test-Path $f)) { $missing += $f }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required files: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "Source structure OK"
+
+      - name: Create release package
+        shell: pwsh
+        run: |
+          $plugin = Get-Content UnrealClaude/UnrealClaude.uplugin | ConvertFrom-Json
+          $version = $plugin.VersionName
+          $zipName = "BetterUnrealClaude-v${version}-UE$($plugin.EngineVersion)-Source.zip"
+
+          # Create clean staging directory
+          New-Item -ItemType Directory -Path staging/UnrealClaude -Force | Out-Null
+
+          # Copy plugin contents
+          Copy-Item -Recurse UnrealClaude/* staging/UnrealClaude/
+
+          # Remove dev-only files from staging
+          $devFiles = @('.mcp.json')
+          foreach ($f in $devFiles) {
+            $path = "staging/UnrealClaude/$f"
+            if (Test-Path $path) { Remove-Item $path -Force }
+          }
+
+          # Create zip
+          Compress-Archive -Path staging/UnrealClaude -DestinationPath $zipName
+          Write-Host "Created $zipName"
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: ${{ env.ZIP_NAME }}
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}

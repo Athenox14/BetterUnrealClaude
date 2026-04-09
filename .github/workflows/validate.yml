@@ -1,0 +1,71 @@
+name: Validate Plugin
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install MCP bridge dependencies
+        run: npm ci
+        working-directory: UnrealClaude/Resources/mcp-bridge
+
+      - name: Validate plugin descriptor
+        run: |
+          python3 -c "
+          import json, sys
+          with open('UnrealClaude/UnrealClaude.uplugin') as f:
+              p = json.load(f)
+          errors = []
+          if 'Win64' not in p.get('SupportedTargetPlatforms', []):
+              errors.append('Win64 not in SupportedTargetPlatforms')
+          if not p.get('EngineVersion', ''):
+              errors.append('Missing EngineVersion')
+          if not p.get('Modules', []):
+              errors.append('No modules defined')
+          if errors:
+              for e in errors: print(f'ERROR: {e}', file=sys.stderr)
+              sys.exit(1)
+          print(f'Plugin: {p[\"FriendlyName\"]} v{p[\"VersionName\"]} (UE {p[\"EngineVersion\"]})')
+          "
+
+      - name: Check for dead tool files
+        run: |
+          dead_files=(
+            MCPTool_SpawnActor MCPTool_GetLevelActors
+            MCPTool_DeleteActors MCPTool_MoveActor
+            MCPTool_AssetSearch MCPTool_AssetRelations
+          )
+          tools_dir="UnrealClaude/Source/UnrealClaude/Private/MCP/Tools"
+          found=0
+          for f in "${dead_files[@]}"; do
+            for ext in .h .cpp; do
+              if [ -f "$tools_dir/${f}${ext}" ]; then
+                echo "ERROR: Dead tool file exists: ${f}${ext}"
+                found=1
+              fi
+            done
+          done
+          [ $found -eq 0 ] && echo "No dead tool files found"
+          exit $found
+
+      - name: Check no FJsonUtils references remain
+        run: |
+          if grep -r "FJsonUtils" UnrealClaude/Source/ 2>/dev/null; then
+            echo "ERROR: FJsonUtils references still exist (should use FJsonObject/FJsonSerializer directly)"
+            exit 1
+          fi
+          echo "No FJsonUtils references found"
+
+      - name: Validate MCP bridge syntax
+        run: node --check UnrealClaude/Resources/mcp-bridge/index.js && node --check UnrealClaude/Resources/mcp-bridge/lib.js && node --check UnrealClaude/Resources/mcp-bridge/context-loader.js

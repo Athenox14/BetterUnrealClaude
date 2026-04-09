@@ -336,25 +336,7 @@ bool FMCPTool_SetProperty::NavigateIntoNestedObject(
 
 bool FMCPTool_SetProperty::SetNumericPropertyValue(FNumericProperty* NumProp, void* ValuePtr, const TSharedPtr<FJsonValue>& Value)
 {
-	if (NumProp->IsFloatingPoint())
-	{
-		double DoubleVal = 0.0;
-		if (Value->TryGetNumber(DoubleVal))
-		{
-			NumProp->SetFloatingPointPropertyValue(ValuePtr, DoubleVal);
-			return true;
-		}
-	}
-	else if (NumProp->IsInteger())
-	{
-		int64 IntVal = 0;
-		if (Value->TryGetNumber(IntVal))
-		{
-			NumProp->SetIntPropertyValue(ValuePtr, IntVal);
-			return true;
-		}
-	}
-	return false;
+	return SetNumericPropertyFromJson(NumProp, ValuePtr, Value);
 }
 
 bool FMCPTool_SetProperty::SetStructPropertyValue(FStructProperty* StructProp, void* ValuePtr, const TSharedPtr<FJsonValue>& Value)
@@ -567,46 +549,13 @@ bool FMCPTool_SetProperty::SetPropertyFromJson(UObject* Object, const FString& P
 	// Get property address and set value based on type
 	void* ValuePtr = Property->ContainerPtrToValuePtr<void>(TargetObject);
 
-	// Try numeric property
-	if (FNumericProperty* NumProp = CastField<FNumericProperty>(Property))
+	// Try simple types (numeric, bool, string, name)
+	if (SetSimplePropertyFromJson(Property, ValuePtr, Value))
 	{
-		if (SetNumericPropertyValue(NumProp, ValuePtr, Value))
-		{
-			return true;
-		}
-	}
-	// Try bool property
-	else if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
-	{
-		bool BoolVal = false;
-		if (Value->TryGetBool(BoolVal))
-		{
-			BoolProp->SetPropertyValue(ValuePtr, BoolVal);
-			return true;
-		}
-	}
-	// Try string property
-	else if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
-	{
-		FString StrVal;
-		if (Value->TryGetString(StrVal))
-		{
-			StrProp->SetPropertyValue(ValuePtr, StrVal);
-			return true;
-		}
-	}
-	// Try name property
-	else if (FNameProperty* NameProp = CastField<FNameProperty>(Property))
-	{
-		FString StrVal;
-		if (Value->TryGetString(StrVal))
-		{
-			NameProp->SetPropertyValue(ValuePtr, FName(*StrVal));
-			return true;
-		}
+		return true;
 	}
 	// Try struct property
-	else if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+	if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
 	{
 		if (SetStructPropertyValue(StructProp, ValuePtr, Value))
 		{
