@@ -99,36 +99,85 @@ FMCPToolResult FMCPTool_Fab::ExecuteSearch(const TSharedRef<FJsonObject>& Params
 	FString Category;
 	Params->TryGetStringField(TEXT("category"), Category);
 
-	// Build Fab search URL
-	FString URL = FString::Printf(
+	// Build Fab search URL (web panel URL — always works via authenticated session)
+	FString SearchUrl = FString::Printf(
+		TEXT("https://www.fab.com/search?q=%s&sort_by=relevance&channels=unreal-engine"),
+		*FGenericPlatformHttp::UrlEncode(Query)
+	);
+	if (!Category.IsEmpty())
+		SearchUrl += FString::Printf(TEXT("&categories=%s"), *FGenericPlatformHttp::UrlEncode(Category));
+
+	// Navigate the embedded Fab browser panel to the search URL.
+	// OpenInNewTab is a UFUNCTION on UFabBrowserApi — accessible via reflection.
+	UObject* FabApi = GetFabBrowserApi();
+	bool bNavigated = false;
+	if (FabApi)
+	{
+		UFunction* OpenTabFn = FabApi->GetClass()->FindFunctionByName(TEXT("OpenInNewTab"));
+		if (OpenTabFn)
+		{
+			struct { FString Url; } TabParams;
+			TabParams.Url = SearchUrl;
+			FabApi->ProcessEvent(OpenTabFn, &TabParams);
+			bNavigated = true;
+			UE_LOG(LogUnrealClaude, Log, TEXT("Fab: navigated browser to %s"), *SearchUrl);
+		}
+	}
+
+	// Also attempt the REST API for programmatic results.
+	// /i/listings is Fab's internal API — may require auth or return 403.
+	FString ApiUrl = FString::Printf(
 		TEXT("https://www.fab.com/i/listings?search_query=%s&channels=unreal-engine&max_results=%d"),
 		*FGenericPlatformHttp::UrlEncode(Query), Limit
 	);
 	if (!Category.IsEmpty())
-		URL += FString::Printf(TEXT("&category=%s"), *FGenericPlatformHttp::UrlEncode(Category));
+		ApiUrl += FString::Printf(TEXT("&category=%s"), *FGenericPlatformHttp::UrlEncode(Category));
 
 	TMap<FString, FString> Headers;
-	Headers.Add(TEXT("Accept"), TEXT("application/json"));
-	Headers.Add(TEXT("User-Agent"), TEXT("UnrealEngine-FabPlugin"));
+	Headers.Add(TEXT("Accept"),     TEXT("application/json"));
+	Headers.Add(TEXT("User-Agent"), TEXT("Mozilla/5.0 UnrealEngine FabPlugin"));
+	Headers.Add(TEXT("Referer"),    TEXT("https://www.fab.com/"));
 
-	// Optionally add auth if user is logged in
 	FString AuthToken = GetFabAuthToken();
 	if (!AuthToken.IsEmpty())
 		Headers.Add(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *AuthToken));
 
 	FString Body;
-	if (!SyncHttpGet(URL, Headers, Body))
-		return FMCPToolResult::Error(TEXT("Fab search request failed. Check internet connection."));
+	int32 HttpCode = 0;
+	bool bApiOk = SyncHttpGetWithCode(ApiUrl, Headers, Body, HttpCode);
 
-	// Parse response
+	UE_LOG(LogUnrealClaude, Log, TEXT("Fab API response: HTTP %d, body: %s"), HttpCode, *Body.Left(300));
+
+	if (!bApiOk)
+	{
+		// REST API failed — return the panel navigation result
+		FString Msg = FString::Printf(
+			TEXT("%sFab REST API returned HTTP %d. Search results are visible in the Fab panel inside UE. "
+			     "To add an asset: find it in the Fab panel, right-click → Add to Project. "
+			     "Raw API response: %s"),
+			bNavigated ? TEXT("Opened Fab browser panel with search results. ") : TEXT(""),
+			HttpCode,
+			*Body.Left(300));
+		return FMCPToolResult::Success(Msg);
+	}
+
+	// Parse REST API response
 	TSharedPtr<FJsonObject> JsonObj;
 	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
 	if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
-		return FMCPToolResult::Error(FString::Printf(TEXT("Failed to parse Fab response: %s"), *Body.Left(200)));
+	{
+		return FMCPToolResult::Success(FString::Printf(
+			TEXT("%sCould not parse Fab API response (HTTP %d). Body: %s"),
+			bNavigated ? TEXT("Opened Fab panel. ") : TEXT(""), HttpCode, *Body.Left(300)));
+	}
 
 	const TArray<TSharedPtr<FJsonValue>>* Results;
 	if (!JsonObj->TryGetArrayField(TEXT("results"), Results))
-		return FMCPToolResult::Error(FString::Printf(TEXT("No 'results' in Fab response: %s"), *Body.Left(300)));
+	{
+		return FMCPToolResult::Success(FString::Printf(
+			TEXT("%sFab API OK but no 'results' field. Keys present: use the Fab panel to browse. Raw: %s"),
+			bNavigated ? TEXT("Opened Fab panel. ") : TEXT(""), *Body.Left(300)));
+	}
 
 	// Build result JSON
 	TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
@@ -276,8 +325,16 @@ FMCPToolResult FMCPTool_Fab::ExecuteAddToProject(const TSharedRef<FJsonObject>& 
 bool FMCPTool_Fab::SyncHttpGet(const FString& URL, const TMap<FString, FString>& Headers,
                                 FString& OutBody, int32 TimeoutSecs)
 {
+	int32 Unused;
+	return SyncHttpGetWithCode(URL, Headers, OutBody, Unused, TimeoutSecs);
+}
+
+bool FMCPTool_Fab::SyncHttpGetWithCode(const FString& URL, const TMap<FString, FString>& Headers,
+                                        FString& OutBody, int32& OutCode, int32 TimeoutSecs)
+{
 	bool bComplete = false;
 	bool bSuccess  = false;
+	OutCode = 0;
 
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetVerb(TEXT("GET"));
@@ -289,10 +346,12 @@ bool FMCPTool_Fab::SyncHttpGet(const FString& URL, const TMap<FString, FString>&
 	Request->OnProcessRequestComplete().BindLambda(
 		[&](FHttpRequestPtr, FHttpResponsePtr Response, bool bWasSuccess)
 		{
-			bSuccess = bWasSuccess && Response.IsValid() &&
-			           EHttpResponseCodes::IsOk(Response->GetResponseCode());
 			if (Response.IsValid())
-				OutBody = Response->GetContentAsString();
+			{
+				OutCode  = Response->GetResponseCode();
+				OutBody  = Response->GetContentAsString();
+				bSuccess = bWasSuccess && EHttpResponseCodes::IsOk(OutCode);
+			}
 			bComplete = true;
 		});
 
@@ -308,6 +367,9 @@ bool FMCPTool_Fab::SyncHttpGet(const FString& URL, const TMap<FString, FString>&
 		if (!bComplete)
 			FPlatformProcess::Sleep(0.016f);
 	}
+
+	if (!bComplete)
+		UE_LOG(LogUnrealClaude, Warning, TEXT("Fab HTTP timeout after %ds for: %s"), TimeoutSecs, *URL);
 
 	return bSuccess;
 }

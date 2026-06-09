@@ -18,6 +18,8 @@ private:
 	// Synchronous HTTP GET — pumps HttpManager while waiting (safe on game thread)
 	static bool SyncHttpGet(const FString& URL, const TMap<FString, FString>& Headers,
 	                        FString& OutBody, int32 TimeoutSecs = 10);
+	static bool SyncHttpGetWithCode(const FString& URL, const TMap<FString, FString>& Headers,
+	                                FString& OutBody, int32& OutCode, int32 TimeoutSecs = 10);
 
 	// Get UFabBrowserApi instance via UObject reflection (avoids Private header)
 	static UObject* GetFabBrowserApi();
