@@ -2,7 +2,6 @@
 
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeCommands.h"
-#include "ClaudeCodeRunner.h"
 #include "ScriptExecutionManager.h"
 #include "MCP/UnrealClaudeMCPServer.h"
 #include "ProjectContext.h"
@@ -24,6 +23,73 @@
 
 DEFINE_LOG_CATEGORY(LogUnrealClaude);
 
+namespace
+{
+	FString GetClaudePath()
+	{
+#if PLATFORM_WINDOWS
+		static FString CachedClaudePath;
+		static bool bHasSearched = false;
+		if (bHasSearched && !CachedClaudePath.IsEmpty())
+			return CachedClaudePath;
+		bHasSearched = true;
+
+		TArray<FString> PossiblePaths;
+		FString UserProfile = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+		if (!UserProfile.IsEmpty())
+			PossiblePaths.Add(FPaths::Combine(UserProfile, TEXT(".local"), TEXT("bin"), TEXT("claude.exe")));
+		FString AppData = FPlatformMisc::GetEnvironmentVariable(TEXT("APPDATA"));
+		if (!AppData.IsEmpty())
+			PossiblePaths.Add(FPaths::Combine(AppData, TEXT("npm"), TEXT("claude.cmd")));
+		FString LocalAppData = FPlatformMisc::GetEnvironmentVariable(TEXT("LOCALAPPDATA"));
+		if (!LocalAppData.IsEmpty())
+			PossiblePaths.Add(FPaths::Combine(LocalAppData, TEXT("npm"), TEXT("claude.cmd")));
+		if (!UserProfile.IsEmpty())
+			PossiblePaths.Add(FPaths::Combine(UserProfile, TEXT("AppData"), TEXT("Roaming"), TEXT("npm"), TEXT("claude.cmd")));
+
+		FString PathEnv = FPlatformMisc::GetEnvironmentVariable(TEXT("PATH"));
+		TArray<FString> PathDirs;
+		PathEnv.ParseIntoArray(PathDirs, TEXT(";"), true);
+		for (const FString& Dir : PathDirs)
+		{
+			PossiblePaths.Add(FPaths::Combine(Dir, TEXT("claude.cmd")));
+			PossiblePaths.Add(FPaths::Combine(Dir, TEXT("claude.exe")));
+		}
+
+		for (const FString& Path : PossiblePaths)
+		{
+			if (IFileManager::Get().FileExists(*Path))
+			{
+				CachedClaudePath = Path;
+				return CachedClaudePath;
+			}
+		}
+
+		FString WhereOutput, WhereErrors;
+		int32 ReturnCode;
+		if (FPlatformProcess::ExecProcess(TEXT("where"), TEXT("claude"), &ReturnCode, &WhereOutput, &WhereErrors) && ReturnCode == 0)
+		{
+			WhereOutput.TrimStartAndEndInline();
+			TArray<FString> Lines;
+			WhereOutput.ParseIntoArrayLines(Lines);
+			if (Lines.Num() > 0)
+			{
+				CachedClaudePath = Lines[0];
+				return CachedClaudePath;
+			}
+		}
+		return CachedClaudePath;
+#else
+		return FString();
+#endif
+	}
+
+	bool IsClaudeAvailable()
+	{
+		return !GetClaudePath().IsEmpty();
+	}
+}
+
 #define LOCTEXT_NAMESPACE "FUnrealClaudeModule"
 
 void FUnrealClaudeModule::StartupModule()
@@ -43,7 +109,7 @@ void FUnrealClaudeModule::StartupModule()
 		}),
 		FCanExecuteAction::CreateLambda([]()
 		{
-			return FClaudeCodeRunner::IsClaudeAvailable();
+			return IsClaudeAvailable();
 		})
 	);
 
@@ -52,9 +118,9 @@ void FUnrealClaudeModule::StartupModule()
 	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 	LevelEditorModule.GetGlobalLevelEditorActions()->Append(PluginCommands.ToSharedRef());
 
-	if (FClaudeCodeRunner::IsClaudeAvailable())
+	if (IsClaudeAvailable())
 	{
-		UE_LOG(LogUnrealClaude, Log, TEXT("Claude CLI found at: %s"), *FClaudeCodeRunner::GetClaudePath());
+		UE_LOG(LogUnrealClaude, Log, TEXT("Claude CLI found at: %s"), *GetClaudePath());
 	}
 	else
 	{
@@ -130,14 +196,14 @@ void FUnrealClaudeModule::UnregisterMenus()
 void FUnrealClaudeModule::LaunchClaudeTerminal()
 {
 #if PLATFORM_WINDOWS
-	FString ClaudePath = FClaudeCodeRunner::GetClaudePath();
+	FString ClaudePath = GetClaudePath();
 	if (ClaudePath.IsEmpty())
 	{
 		UE_LOG(LogUnrealClaude, Error, TEXT("Terminal: Claude CLI not found"));
 		return;
 	}
 
-	FString Args = TEXT("--verbose --dangerously-skip-permissions ");
+	FString Args = TEXT("--verbose ");
 
 	FString PluginDir;
 	FString EnginePluginPath = FPaths::Combine(FPaths::EnginePluginsDir(), TEXT("UnrealClaude"));
