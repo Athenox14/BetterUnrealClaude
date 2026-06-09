@@ -61,7 +61,9 @@ public class UnrealClaude : ModuleRules
 				// Enhanced Input
 				"EnhancedInput",
 				// Navigation system (for NavMeshBoundsVolume etc.)
-				"NavigationSystem"
+				"NavigationSystem",
+				// Fab marketplace integration
+				"Fab"
 			}
 		);
 

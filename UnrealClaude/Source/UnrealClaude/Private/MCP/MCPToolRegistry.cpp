@@ -21,6 +21,7 @@
 #include "Tools/MCPTool_BehaviorTreeModify.h"
 
 #include "Tools/MCPTool_Task.h"
+#include "Tools/MCPTool_Fab.h"
 
 FMCPToolRegistry::FMCPToolRegistry()
 {
@@ -75,6 +76,7 @@ void FMCPToolRegistry::RegisterBuiltinTools()
 	RegisterTool(MakeShared<FMCPTool_OpenLevel>());
 
 	RegisterTool(MakeShared<FMCPTool_BehaviorTreeModify>());
+	RegisterTool(MakeShared<FMCPTool_Fab>());
 
 	TaskQueue = MakeShared<FMCPTaskQueue>(this);
 
