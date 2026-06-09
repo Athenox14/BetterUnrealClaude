@@ -107,8 +107,8 @@ FMCPToolResult FMCPTool_Fab::ExecuteSearch(const TSharedRef<FJsonObject>& Params
 	if (!Category.IsEmpty())
 		SearchUrl += FString::Printf(TEXT("&categories=%s"), *FGenericPlatformHttp::UrlEncode(Category));
 
-	// Navigate the embedded Fab browser panel to the search URL.
-	// OpenInNewTab is a UFUNCTION on UFabBrowserApi — accessible via reflection.
+	// Try to navigate the embedded Fab browser panel (requires Fab panel already open).
+	// Fallback: open in system browser — always works.
 	UObject* FabApi = GetFabBrowserApi();
 	bool bNavigated = false;
 	if (FabApi)
@@ -120,8 +120,16 @@ FMCPToolResult FMCPTool_Fab::ExecuteSearch(const TSharedRef<FJsonObject>& Params
 			TabParams.Url = SearchUrl;
 			FabApi->ProcessEvent(OpenTabFn, &TabParams);
 			bNavigated = true;
-			UE_LOG(LogUnrealClaude, Log, TEXT("Fab: navigated browser to %s"), *SearchUrl);
+			UE_LOG(LogUnrealClaude, Log, TEXT("Fab: navigated UE browser panel to %s"), *SearchUrl);
 		}
+	}
+
+	if (!bNavigated)
+	{
+		// Fab panel not open — open search in system browser instead
+		FPlatformProcess::LaunchURL(*SearchUrl, nullptr, nullptr);
+		bNavigated = true;
+		UE_LOG(LogUnrealClaude, Log, TEXT("Fab: opened search in system browser: %s"), *SearchUrl);
 	}
 
 	// Also attempt the REST API for programmatic results.
@@ -152,12 +160,13 @@ FMCPToolResult FMCPTool_Fab::ExecuteSearch(const TSharedRef<FJsonObject>& Params
 	{
 		// REST API failed — return the panel navigation result
 		FString Msg = FString::Printf(
-			TEXT("%sFab REST API returned HTTP %d. Search results are visible in the Fab panel inside UE. "
-			     "To add an asset: find it in the Fab panel, right-click → Add to Project. "
-			     "Raw API response: %s"),
-			bNavigated ? TEXT("Opened Fab browser panel with search results. ") : TEXT(""),
+			TEXT("Opened search in %s. "
+			     "Fab REST API blocked (HTTP %d — Cloudflare). "
+			     "Browse results, then use add_to_project with the asset uid. "
+			     "Search URL: %s"),
+			FabApi ? TEXT("UE Fab panel") : TEXT("system browser"),
 			HttpCode,
-			*Body.Left(300));
+			*SearchUrl);
 		return FMCPToolResult::Success(Msg);
 	}
 
