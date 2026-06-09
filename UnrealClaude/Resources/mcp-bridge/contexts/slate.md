@@ -1,4 +1,4 @@
-# Unreal Engine 5.7 Slate UI Context
+# Unreal Engine 5.8 Slate UI Context
 
 This context is automatically loaded when working with Slate widget or Editor UI tasks.
 

@@ -1,4 +1,4 @@
-# Unreal Engine 5.7 Material System Context
+# Unreal Engine 5.8 Material System Context
 
 This context is automatically loaded when working with Material MCP tools.
 
