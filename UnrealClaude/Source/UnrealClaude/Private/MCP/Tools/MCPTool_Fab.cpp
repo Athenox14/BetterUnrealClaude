@@ -8,6 +8,7 @@
 #include "Interfaces/IHttpResponse.h"
 #include "HttpModule.h"
 #include "HttpManager.h"
+#include "Async/TaskGraphInterfaces.h"
 #include "GenericPlatform/GenericPlatformHttp.h"
 #include "GenericPlatform/GenericPlatformProcess.h"
 
@@ -297,12 +298,15 @@ bool FMCPTool_Fab::SyncHttpGet(const FString& URL, const TMap<FString, FString>&
 
 	Request->ProcessRequest();
 
-	// Pump HttpManager on game thread until done (avoids deadlock)
+	// UE HTTP callbacks dispatch via AsyncTask(GameThread).
+	// Must pump the game thread task graph — Sleep alone deadlocks.
 	const double Deadline = FPlatformTime::Seconds() + TimeoutSecs;
 	while (!bComplete && FPlatformTime::Seconds() < Deadline)
 	{
-		FHttpModule::Get().GetHttpManager().Tick(0.05f);
-		FPlatformProcess::Sleep(0.05f);
+		FHttpModule::Get().GetHttpManager().Tick(0.016f);
+		FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+		if (!bComplete)
+			FPlatformProcess::Sleep(0.016f);
 	}
 
 	return bSuccess;
