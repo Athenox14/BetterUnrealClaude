@@ -3,7 +3,7 @@
 > **Performance-optimized fork of [UnrealClaude](https://github.com/Natfii/UnrealClaude)** by Natfii
 > Created by [Athenox Development](https://athenox.dev)
 
-![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.7-313131?style=flat&logo=unrealengine&logoColor=white)
+![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.8-313131?style=flat&logo=unrealengine&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat&logo=c%2B%2B&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Win64-0078D6?style=flat&logo=windows&logoColor=white)
 ![Rust](https://img.shields.io/badge/MCP%20Bridge-Rust-DEA584?style=flat&logo=rust&logoColor=white)
@@ -13,7 +13,7 @@
 [![Hosted by OxalisHeberg](https://img.shields.io/badge/Hosted%20by-OxalisHeberg-FF6600?style=flat&logo=server)](https://oxalisheberg.fr)
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/Athenox14)
 
-**Enhanced Claude Code CLI integration for Unreal Engine 5.7** with dynamic Blueprint node discovery, optimized token usage, and advanced workflow validation.
+**Enhanced Claude Code CLI integration for Unreal Engine 5.8** with dynamic Blueprint node discovery, optimized token usage, and advanced workflow validation.
 
 > **Windows Only** - This plugin uses Windows-specific process APIs.
 
@@ -37,11 +37,11 @@ This fork adds **major performance and reliability improvements** to the origina
 
 ## Overview
 
-Better UnrealClaude integrates the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) directly into the Unreal Engine 5.7 Editor. Instead of using the API directly, this plugin shells out to the `claude` command-line tool, leveraging your existing Claude Code authentication and capabilities.
+Better UnrealClaude integrates the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) directly into the Unreal Engine 5.8 Editor. Instead of using the API directly, this plugin shells out to the `claude` command-line tool, leveraging your existing Claude Code authentication and capabilities.
 
 **Core Features:**
 - **21 MCP Tools** - Model Context Protocol server for comprehensive editor control
-- **Dynamic UE 5.7 Context System** - Accurate API documentation on demand
+- **Dynamic UE 5.8 Context System** - Accurate API documentation on demand
 - **Blueprint Editing** - Create and modify Blueprints with validated workflows
 - **Behavior Trees** - Full BT/Blackboard support with composite/task/decorator nodes
 - **Animation Blueprints** - State machine editing (states, transitions, conditions)
@@ -108,7 +108,7 @@ claude -p "Hello, can you see me?"
 
 Copy to your engine's plugins folder:
 ```
-C:\Program Files\Epic Games\UE_5.7\Engine\Plugins\Marketplace\UnrealClaude\
+C:\Program Files\Epic Games\UE_5.8\Engine\Plugins\Marketplace\UnrealClaude\
 ```
 
 ### Option C: Building from Source
@@ -146,7 +146,7 @@ Explain World Partition and how to set up streaming for an open world.
 
 Write a BlueprintCallable function that spawns particles at a location.
 
-How do I properly use TObjectPtr<> vs raw pointers in UE5.7?
+How do I properly use TObjectPtr<> vs raw pointers in UE5.8?
 
 Create a Behavior Tree for an AI enemy with patrol and chase states.
 
@@ -298,9 +298,9 @@ The plugin includes a Model Context Protocol (MCP) server with **21 specialized 
 
 ---
 
-## Dynamic UE 5.7 Context System
+## Dynamic UE 5.8 Context System
 
-The MCP bridge includes a dynamic context loader that provides accurate UE 5.7 API documentation on demand. Use `unreal_get_ue_context` to query by category or search by keywords.
+The MCP bridge includes a dynamic context loader that provides accurate UE 5.8 API documentation on demand. Use `unreal_get_ue_context` to query by category or search by keywords.
 
 **Available Categories:**
 - `animation` - Animation Blueprints, state machines, blend spaces
@@ -394,7 +394,7 @@ Connect using **exact IDs and pin names** from previous steps:
 
 ### Custom System Prompts
 
-You can extend the built-in UE5.7 context by creating a `CLAUDE.md` file in your project root:
+You can extend the built-in UE5.8 context by creating a `CLAUDE.md` file in your project root:
 
 ```markdown
 # My Project Context
@@ -423,7 +423,7 @@ Config.AllowedTools = { TEXT("Read"), TEXT("Grep"), TEXT("Glob") }; // Read-only
 ## How It Works
 
 1. User enters a prompt in the editor widget
-2. Plugin builds context from UE5.7 knowledge + project information
+2. Plugin builds context from UE5.8 knowledge + project information
 3. Executes: `claude -p --skip-permissions --append-system-prompt "..." "your prompt"`
 4. Claude Code runs with your project as the working directory
 5. MCP server provides 21 specialized tools for editor manipulation
@@ -436,7 +436,7 @@ Config.AllowedTools = { TEXT("Read"), TEXT("Grep"), TEXT("Glob") }; // Read-only
 cd "C:\YourProject"
 claude -p --skip-permissions \
   --allowedTools "Read,Write,Edit,Grep,Glob,Bash" \
-  --append-system-prompt "You are an expert Unreal Engine 5.7 developer..." \
+  --append-system-prompt "You are an expert Unreal Engine 5.8 developer..." \
   "How do I create a custom GameMode?"
 ```
 
@@ -460,7 +460,7 @@ Claude Code executes in your project directory and may read files for context. L
 
 ### Plugin doesn't compile
 
-Ensure you're on Unreal Engine 5.7 for Windows. This plugin uses Windows-specific APIs.
+Ensure you're on Unreal Engine 5.8 for Windows. This plugin uses Windows-specific APIs.
 
 ### MCP Server not starting
 
@@ -553,6 +553,6 @@ MIT License - See [LICENSE](UnrealClaude/LICENSE) file.
 - GitHub: [github.com/Natfii/UnrealClaude](https://github.com/Natfii/UnrealClaude)
 
 **Powered by:**
-- Unreal Engine 5.7 by Epic Games
+- Unreal Engine 5.8 by Epic Games
 - [Claude Code](https://claude.ai/code) by Anthropic
 - Model Context Protocol (MCP) by Anthropic

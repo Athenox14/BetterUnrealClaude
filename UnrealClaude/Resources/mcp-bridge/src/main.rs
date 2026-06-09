@@ -187,7 +187,7 @@ async fn handle_list_tools(
     mcp_tools.push(json!({
         "name": "unreal_get_ue_context",
         "description": format!(
-            "Get Unreal Engine 5.7 API context/documentation. Categories: {}. Can also search by query keywords.",
+            "Get Unreal Engine 5.8 API context/documentation. Categories: {}. Can also search by query keywords.",
             categories.join(", ")
         ),
         "inputSchema": {
@@ -268,7 +268,7 @@ async fn handle_call_tool(
     // Context injection
     if config.inject_context && result.success {
         if let Some(context) = ctx.get_context_for_tool(tool_name) {
-            response_text.push_str("\n\n---\n\n## Relevant UE 5.7 API Context\n\n");
+            response_text.push_str("\n\n---\n\n## Relevant UE 5.8 API Context\n\n");
             response_text.push_str(&context);
         }
     }
@@ -286,7 +286,7 @@ fn handle_context_request(ctx: &ContextLoader, args: &Value) -> Result<Value, Va
     if let Some(cat) = category {
         if let Some(content) = ctx.load_category(cat) {
             return Ok(json!({
-                "content": [{ "type": "text", "text": format!("# UE 5.7 Context: {}\n\n{}", cat, content) }]
+                "content": [{ "type": "text", "text": format!("# UE 5.8 Context: {}\n\n{}", cat, content) }]
             }));
         }
         return Ok(tool_error(&format!(
@@ -299,7 +299,7 @@ fn handle_context_request(ctx: &ContextLoader, args: &Value) -> Result<Value, Va
     if let Some(q) = query {
         if let Some((categories, content)) = ctx.get_context_for_query(q) {
             return Ok(json!({
-                "content": [{ "type": "text", "text": format!("# UE 5.7 Context: {}\n\n{}", categories.join(", "), content) }]
+                "content": [{ "type": "text", "text": format!("# UE 5.8 Context: {}\n\n{}", categories.join(", "), content) }]
             }));
         }
         return Ok(json!({
@@ -319,7 +319,7 @@ fn handle_context_request(ctx: &ContextLoader, args: &Value) -> Result<Value, Va
 
     Ok(json!({
         "content": [{ "type": "text", "text": format!(
-            "# Available UE 5.7 Context Categories\n\n{}\n\nUse `category` param for specific context or `query` to search by keywords.",
+            "# Available UE 5.8 Context Categories\n\n{}\n\nUse `category` param for specific context or `query` to search by keywords.",
             list.join("\n")
         )}]
     }))

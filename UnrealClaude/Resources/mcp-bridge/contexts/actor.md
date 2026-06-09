@@ -1,4 +1,4 @@
-# Unreal Engine 5.7 Actor & Component Context
+# Unreal Engine 5.8 Actor & Component Context
 
 This context is automatically loaded when working with Actor and Component manipulation.
 
@@ -273,7 +273,7 @@ Available via `spawn_actor`, `move_actor`, `delete_actors`, `get_level_actors`:
 
 ## Level Management
 
-### Loading Levels in Editor (UE 5.7)
+### Loading Levels in Editor (UE 5.8)
 
 The `open_level` MCP tool provides level management without console commands.
 
@@ -297,7 +297,7 @@ UWorld* NewWorld = UEditorLoadingAndSavingUtils::NewBlankMap(/*bSaveCurrent=*/tr
 bool bExists = FPackageName::DoesPackageExist(TEXT("/Game/Maps/MyLevel"));
 ```
 
-### Map Templates (UE 5.7)
+### Map Templates (UE 5.8)
 
 ```cpp
 // Access available map templates via GUnrealEd

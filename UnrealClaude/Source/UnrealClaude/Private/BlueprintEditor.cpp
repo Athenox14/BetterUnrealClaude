@@ -142,7 +142,7 @@ bool FBlueprintEditor::AddFunction(
 	}
 
 	// Initialize and add to Blueprint
-	// nullptr cast for UE 5.7 template deduction
+	// nullptr cast for UE 5.8 template deduction
 	FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, false, static_cast<UFunction*>(nullptr));
 
 	// Ensure function entry node exists

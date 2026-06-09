@@ -1,4 +1,4 @@
-# Unreal Engine 5.7 Blueprint Graph Context
+# Unreal Engine 5.8 Blueprint Graph Context
 
 This context is automatically loaded when working with Blueprint manipulation tools.
 
