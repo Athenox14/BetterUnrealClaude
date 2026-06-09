@@ -549,7 +549,7 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteAddNode(const TSharedRef<FJsonOb
 				if (!PinValueStr.IsEmpty())
 				{
 					FString PinError;
-					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
+					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, FString(PinValue.Key), PinValueStr, PinError);
 				}
 			}
 		}
@@ -701,7 +701,7 @@ bool FMCPTool_BlueprintModify::CreateNodesFromSpec(
 				if (!PinValueStr.IsEmpty())
 				{
 					FString PinError;
-					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
+					FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, FString(PinValue.Key), PinValueStr, PinError);
 				}
 			}
 		}
@@ -1314,7 +1314,7 @@ FMCPToolResult FMCPTool_BlueprintModify::ExecuteBatch(const TSharedRef<FJsonObje
 							if (!PinValueStr.IsEmpty())
 							{
 								FString PinError;
-								FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, PinValue.Key, PinValueStr, PinError);
+								FBlueprintUtils::SetPinDefaultValue(Graph, NodeId, FString(PinValue.Key), PinValueStr, PinError);
 							}
 						}
 					}
