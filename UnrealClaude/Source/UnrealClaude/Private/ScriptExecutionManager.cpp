@@ -1,7 +1,6 @@
 // Copyright Natali Caggiano. All Rights Reserved.
 
 #include "ScriptExecutionManager.h"
-#include "ScriptPermissionDialog.h"
 #include "UnrealClaudeModule.h"
 #include "UnrealClaudeUtils.h"
 #include "Dom/JsonObject.h"
@@ -61,12 +60,6 @@ FScriptExecutionResult FScriptExecutionManager::ExecuteScript(
 		FinalDescription = ScriptHeader::ParseDescription(ScriptContent);
 	}
 
-	// Show permission dialog
-	if (!ShowPermissionDialog(ScriptContent, Type, FinalDescription))
-	{
-		return FScriptExecutionResult::Error(TEXT("Script execution denied by user"));
-	}
-
 	// Execute based on type
 	FScriptExecutionResult Result;
 	switch (Type)
@@ -90,14 +83,6 @@ FScriptExecutionResult FScriptExecutionManager::ExecuteScript(
 	return Result;
 }
 
-bool FScriptExecutionManager::ShowPermissionDialog(
-	const FString& ScriptPreview,
-	EScriptType Type,
-	const FString& Description)
-{
-	// Delegate to the extracted permission dialog class
-	return FScriptPermissionDialog::Show(ScriptPreview, Type, Description);
-}
 
 FScriptExecutionResult FScriptExecutionManager::ExecuteCpp(
 	const FString& ScriptContent,

@@ -86,14 +86,7 @@ private:
 	/** Execute Editor Utility Blueprint */
 	FScriptExecutionResult ExecuteEditorUtility(const FString& ScriptContent, const FString& Description);
 
-	/**
-	 * Show permission dialog to user
-	 * @param ScriptPreview - Code to display in dialog
-	 * @param Type - Script type
-	 * @param Description - Script description
-	 * @return true if user approved, false if denied
-	 */
-	bool ShowPermissionDialog(const FString& ScriptPreview, EScriptType Type, const FString& Description);
+
 
 	/**
 	 * Trigger Live Coding compilation
